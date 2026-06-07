@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from synapse_yield.domain.enums import OrderStatus, OutboxStatus, RiskDecisionStatus
 from synapse_yield.domain.ids import new_id
-from synapse_yield.domain.schemas import OrderIntent
+from synapse_yield.domain.schemas import MarketQuote, OrderIntent
 from synapse_yield.domain.state_machine import assert_order_transition
 from synapse_yield.risk.engine import RiskEngine
 from synapse_yield.storage.models import AuditLog, Order, OutboxEvent, RiskDecision
@@ -56,8 +56,18 @@ class OrderService:
         )
         return order
 
-    def run_risk_check(self, session: Session, trace_id: str, order: Order) -> RiskDecision:
-        """对已创建订单执行风控，并根据结果推进订单状态。"""
+    def run_risk_check(
+        self,
+        session: Session,
+        trace_id: str,
+        order: Order,
+        quote: MarketQuote | None = None,
+        market_is_open: bool | None = None,
+    ) -> RiskDecision:
+        """对已创建订单执行风控，并根据结果推进订单状态。
+
+        quote 用于市价单估值和限价偏离检查；market_is_open 由交易日历模块提供。
+        """
 
         # 从订单记录还原下单意图，确保风控使用的是已落库的订单数据。
         intent = OrderIntent(
@@ -70,7 +80,14 @@ class OrderService:
             time_in_force=order.time_in_force,
             source_signal_id=order.source_signal_id,
         )
-        result = self.risk_engine.check(session, intent)
+        # 排除当前订单，避免它在重复订单和每日订单统计中把自己计算进去。
+        result = self.risk_engine.check(
+            session,
+            intent,
+            exclude_order_id=order.order_id,
+            quote=quote,
+            market_is_open=market_is_open,
+        )
         # 将风控引擎的布尔结果转换为领域枚举，便于持久化和查询。
         decision_status = (
             RiskDecisionStatus.APPROVED if result.approved else RiskDecisionStatus.REJECTED
@@ -129,6 +146,28 @@ class OrderService:
             next_state=target_status,
         )
 
+    @classmethod
+    def record_event(
+        cls,
+        session: Session,
+        trace_id: str,
+        event_type: str,
+        input_snapshot: dict,
+        output_snapshot: dict,
+    ) -> None:
+        """记录不涉及订单状态迁移的 Harness 审计事件。"""
+
+        # 资源冻结、释放和账本更新没有订单前后状态，但仍必须保留审计快照。
+        cls._audit(
+            session=session,
+            trace_id=trace_id,
+            event_type=event_type,
+            input_snapshot=input_snapshot,
+            output_snapshot=output_snapshot,
+            previous_state=None,
+            next_state=None,
+        )
+
     @staticmethod
     def _idempotency_key(intent: OrderIntent) -> str:
         """基于订单关键字段生成幂等键，辅助识别重复请求。"""
@@ -179,17 +218,41 @@ class OrderService:
         event_type: str,
         aggregate_id: str,
         payload: dict,
+        aggregate_type: str = "ORDER",
     ) -> None:
-        """写入待发布的订单事件，供异步提交或消息发布流程消费。"""
+        """写入待发布的领域事件，供异步提交或消息发布流程消费。"""
 
+        # 事件与当前数据库事务一起提交，避免业务数据成功但通知事件丢失。
         session.add(
             OutboxEvent(
                 event_id=new_id("evt"),
                 trace_id=trace_id,
                 event_type=event_type,
-                aggregate_type="ORDER",
+                aggregate_type=aggregate_type,
                 aggregate_id=aggregate_id,
                 payload=payload,
                 status=OutboxStatus.PENDING,
             )
+        )
+
+    @classmethod
+    def enqueue_event(
+        cls,
+        session: Session,
+        trace_id: str,
+        event_type: str,
+        aggregate_type: str,
+        aggregate_id: str,
+        payload: dict,
+    ) -> None:
+        """向 Outbox 追加领域事件。"""
+
+        # 对外暴露统一入口，Broker 无需依赖私有的 _enqueue_outbox 方法。
+        cls._enqueue_outbox(
+            session=session,
+            trace_id=trace_id,
+            event_type=event_type,
+            aggregate_id=aggregate_id,
+            payload=payload,
+            aggregate_type=aggregate_type,
         )

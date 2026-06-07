@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from synapse_yield.domain.enums import OrderSide, OrderType, TimeInForce
 
@@ -20,6 +20,15 @@ class OrderIntent(BaseModel):
     time_in_force: TimeInForce = TimeInForce.DAY  # 订单有效期，默认当日有效
     source_signal_id: str | None = None  # 触发下单的信号 ID，便于追踪策略决策
     strategy_name: str | None = None  # 策略名称，便于审计和风控分组
+
+    @model_validator(mode="after")
+    def validate_order_price(self) -> "OrderIntent":
+        """确保限价单在进入 Harness 前已经提供有效委托价格。"""
+
+        # 市价单允许 limit_price 为空；限价单缺价无法执行撮合或资金预留。
+        if self.order_type == OrderType.LIMIT and self.limit_price is None:
+            raise ValueError("limit_price is required for LIMIT orders")
+        return self
 
 
 class RiskCheckResult(BaseModel):
@@ -46,6 +55,15 @@ class RiskConfig(BaseModel):
     duplicate_order_cooldown_seconds: int = 60  # 重复订单冷却时间，降低误触发风险
     max_limit_price_deviation_ratio: Decimal = Decimal("0.03")  # 限价相对最新价最大偏离比例
     require_market_session: bool = True  # 是否要求只在交易时段内下单
+
+
+class LocalSimConfig(BaseModel):
+    """本地模拟盘的费用配置。"""
+
+    # 按成交金额乘费率计算佣金；默认 0 便于无费用模拟。
+    commission_rate: Decimal = Field(default=Decimal("0"), ge=0)
+    # 费率佣金低于该值时收取最低佣金，默认同样为 0。
+    minimum_commission: Decimal = Field(default=Decimal("0"), ge=0)
 
 
 class MarketQuote(BaseModel):
