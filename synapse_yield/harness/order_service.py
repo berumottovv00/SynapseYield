@@ -1,6 +1,7 @@
 from decimal import Decimal
 from hashlib import sha256
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from synapse_yield.domain.enums import OrderStatus, OutboxStatus, RiskDecisionStatus
@@ -22,10 +23,24 @@ class OrderService:
         """根据下单意图创建本地订单记录，并写入创建审计日志。"""
 
         # order_id 是系统内部主键，client_order_id 用于提交给 Broker 或模拟盘。
+        idempotency_key = self._idempotency_key(intent)
+        existing_order = session.scalar(
+            select(Order).where(Order.idempotency_key == idempotency_key)
+        )
+        if existing_order is not None:
+            self._audit(
+                session=session,
+                trace_id=trace_id,
+                event_type="ORDER_IDEMPOTENCY_HIT",
+                input_snapshot={"idempotency_key": idempotency_key},
+                output_snapshot={"order_id": existing_order.order_id},
+                previous_state=existing_order.status,
+                next_state=existing_order.status,
+            )
+            return existing_order
+
         order_id = new_id("ord")
         client_order_id = new_id("client")
-        # 幂等键由关键业务字段哈希生成，用于识别重复下单请求。
-        idempotency_key = self._idempotency_key(intent)
 
         order = Order(
             order_id=order_id,

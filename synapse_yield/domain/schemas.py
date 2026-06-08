@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from synapse_yield.domain.enums import OrderSide, OrderType, TimeInForce
+from synapse_yield.domain.enums import OrderSide, OrderStatus, OrderType, TimeInForce
 
 
 class OrderIntent(BaseModel):
@@ -152,6 +152,22 @@ class ReplayResult(BaseModel):
     processed_snapshots: int
     generated_signals: int
     runs: tuple[StrategyRunResult, ...]
+
+
+class HarnessRunResult(BaseModel):
+    """Harness 串联一次行情、策略、风控和执行后的摘要。"""
+
+    model_config = ConfigDict(frozen=True)
+
+    trace_id: str
+    snapshot_id: str | None = None
+    signal_id: str | None = None
+    order_id: str | None = None
+    risk_decision_id: str | None = None
+    broker_order_id: str | None = None
+    order_status: OrderStatus | None = None
+    dry_run: bool
+    message: str
 
 
 class BrokerOrderResult(BaseModel):

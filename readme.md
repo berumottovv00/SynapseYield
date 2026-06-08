@@ -783,6 +783,19 @@ result = StrategyRunner().run(
 - 引入幂等键。
 - 引入订单状态机。
 
+当前状态：已完成。
+
+已支持：
+
+- `TradingHarness` 作为统一编排入口，串联标准行情、策略 Adapter、风控和 Broker。
+- 每次编排可传入或自动生成 `trace_id`，贯穿行情快照、策略信号、订单、风控、审计和 Outbox。
+- dry run 在策略信号后停止，不创建订单、不执行风控、不提交 Broker。
+- 非 dry run 将策略输出转换为 `OrderIntent`，再由 `OrderService` 创建订单并执行风控。
+- 风控通过后调用当前配置的 Broker；本阶段默认使用 `LocalSimBroker`。
+- 风控拒绝时订单停在 `RISK_REJECTED`，不会提交 Broker。
+- 相同 `trace_id`、策略和标的重复进入 Harness 时复用已有订单，避免重复提交。
+- 订单生命周期继续由状态机控制，所有状态迁移通过 `OrderService.transition_order()`。
+
 ### Milestone 5：长桥 Adapter
 
 - 接入长桥行情查询。
@@ -937,6 +950,7 @@ outbox_events
 - 本地模拟盘端到端 demo。
 - 状态机、风控和本地模拟盘端到端测试。
 - 策略 Adapter、标准输入输出、dry run 和历史行情回放。
+- Harness 编排入口，串联行情、策略、风控和本地 Broker 执行。
 
 ## 合规与安全边界
 
