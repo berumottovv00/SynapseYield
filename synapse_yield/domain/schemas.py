@@ -1,3 +1,4 @@
+from datetime import datetime
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -76,6 +77,81 @@ class MarketQuote(BaseModel):
     last_price: Decimal = Field(gt=0)  # 最新成交价，必须大于 0
     bid_price: Decimal | None = Field(default=None, gt=0)  # 当前买一价，可为空
     ask_price: Decimal | None = Field(default=None, gt=0)  # 当前卖一价，可为空
+
+
+class MarketDataSnapshot(BaseModel):
+    """策略层使用的标准化行情快照。"""
+
+    model_config = ConfigDict(frozen=True)
+
+    symbol: str
+    timestamp: datetime
+    last_price: Decimal = Field(gt=0)
+    open_price: Decimal | None = Field(default=None, gt=0)
+    high_price: Decimal | None = Field(default=None, gt=0)
+    low_price: Decimal | None = Field(default=None, gt=0)
+    volume: Decimal | None = Field(default=None, ge=0)
+    turnover: Decimal | None = Field(default=None, ge=0)
+    bid_price: Decimal | None = Field(default=None, gt=0)
+    ask_price: Decimal | None = Field(default=None, gt=0)
+    source: str
+
+
+class StrategyContext(BaseModel):
+    """传给策略的确定性上下文，不包含数据库 Session 或 Broker。"""
+
+    model_config = ConfigDict(frozen=True)
+
+    account_id: str
+    previous_snapshots: tuple[MarketDataSnapshot, ...] = ()
+    parameters: dict = Field(default_factory=dict)
+
+
+class StrategyOutput(BaseModel):
+    """任意外部策略经过 Adapter 后必须返回的标准信号结构。"""
+
+    model_config = ConfigDict(frozen=True)
+
+    side: OrderSide
+    confidence: Decimal = Field(ge=0, le=1)
+    target_quantity: Decimal = Field(gt=0)
+    order_type: OrderType
+    limit_price: Decimal | None = Field(default=None, gt=0)
+    reason: str
+    raw_payload: dict = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_limit_price(self) -> "StrategyOutput":
+        """策略输出限价单时必须同时给出限价。"""
+
+        if self.order_type == OrderType.LIMIT and self.limit_price is None:
+            raise ValueError("limit_price is required for LIMIT strategy output")
+        return self
+
+
+class StrategyRunResult(BaseModel):
+    """单次策略运行结果，包含标准信号及可交给 Harness 的订单意图。"""
+
+    model_config = ConfigDict(frozen=True)
+
+    trace_id: str
+    snapshot_id: str
+    signal_id: str | None = None
+    strategy_name: str
+    strategy_version: str
+    dry_run: bool
+    output: StrategyOutput | None = None
+    order_intent: OrderIntent | None = None
+
+
+class ReplayResult(BaseModel):
+    """一段历史行情回放的汇总结果。"""
+
+    model_config = ConfigDict(frozen=True)
+
+    processed_snapshots: int
+    generated_signals: int
+    runs: tuple[StrategyRunResult, ...]
 
 
 class BrokerOrderResult(BaseModel):

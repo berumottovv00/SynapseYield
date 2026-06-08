@@ -741,6 +741,41 @@ idempotency_key = hash(account_id + strategy_name + signal_id + symbol + side + 
 - 支持策略回放。
 - 支持 dry run。
 
+当前状态：已完成。
+
+已支持：
+
+- `StrategyAdapter` 稳定协议，策略只接收标准行情和确定性上下文。
+- `CallableStrategyAdapter`，可将已有 Python 策略函数及字典输出包装为标准策略。
+- `MarketDataSnapshot`、`StrategyContext`、`StrategyOutput` 等标准领域模型。
+- 策略行情快照和信号持久化到 `market_snapshots`、`strategy_signals`。
+- dry run 模式记录行情和策略信号，但不生成订单意图。
+- 非 dry run 模式生成标准 `OrderIntent`，但不创建订单或调用 Broker。
+- 历史行情按时间排序回放，并将此前行情作为后续策略上下文。
+- `PriceMoveStrategy` 确定性示例策略，便于测试 Adapter 和回放流程。
+
+策略函数适配示例：
+
+```python
+adapter = CallableStrategyAdapter(
+    name="my_strategy",
+    version="v1",
+    strategy=my_existing_strategy,
+)
+
+result = StrategyRunner().run(
+    session=session,
+    trace_id=trace_id,
+    adapter=adapter,
+    snapshot=market_snapshot,
+    context=StrategyContext(account_id=account_id),
+    dry_run=True,
+)
+```
+
+第三阶段只负责生成标准信号和订单意图，不直接创建订单或提交 Broker。订单创建、
+风控和执行由第四阶段 Harness 编排。
+
 ### Milestone 4：Harness 编排
 
 - 串联行情、策略、风控、执行。
@@ -901,6 +936,7 @@ outbox_events
   Broker 事件、Outbox 事件以及资金和持仓账本更新。
 - 本地模拟盘端到端 demo。
 - 状态机、风控和本地模拟盘端到端测试。
+- 策略 Adapter、标准输入输出、dry run 和历史行情回放。
 
 ## 合规与安全边界
 
