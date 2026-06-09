@@ -1,7 +1,8 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from synapse_yield.broker.local_sim import LocalSimBroker
+from synapse_yield.broker.base import BrokerAdapter
+from synapse_yield.broker.factory import build_broker
 from synapse_yield.domain.enums import OrderStatus
 from synapse_yield.domain.ids import new_id
 from synapse_yield.domain.schemas import (
@@ -23,11 +24,11 @@ class TradingHarness:
         self,
         strategy_runner: StrategyRunner | None = None,
         order_service: OrderService | None = None,
-        broker: LocalSimBroker | None = None,
+        broker: BrokerAdapter | None = None,
     ):
         self.strategy_runner = strategy_runner or StrategyRunner()
         self.order_service = order_service or OrderService()
-        self.broker = broker or LocalSimBroker(order_service=self.order_service)
+        self.broker = broker or build_broker(order_service=self.order_service)
 
     def run_market_snapshot(
         self,

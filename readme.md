@@ -821,6 +821,46 @@ Agent 只负责流程推进，不直接修改资金、持仓或绕过状态机�
 - 接入长桥交易推送。
 - 默认只允许 dry run 或模拟环境。
 
+当前状态：已完成代码与 mock/SDK 兼容测试，尚未使用真实长桥账户凭证联调。
+
+已支持：
+
+- `BrokerAdapter` 统一协议，Harness 和 LangGraph 不依赖具体 Broker 实现。
+- `LongbridgeSDKGateway` 封装官方 Python SDK 4.3.x 的枚举、查询、下单和订阅接口。
+- `LongbridgeBroker` 接入行情、账户资金、持仓、订单查询。
+- 限价单/市价单提交和撤单请求。
+- 私有交易主题订单推送和行情 Quote 推送。
+- 长桥订单状态到内部订单状态机的映射。
+- Broker 原始事件、订单审计和 `ORDER_FILLED` / `ORDER_CANCELLED` Outbox 事件。
+- 提交超时或网络结果不明时进入 `RECONCILING`，禁止盲目重试。
+- `BROKER_TYPE=local_sim|longbridge` 配置化选择 Broker。
+- 外部下单与真实账户交易双重安全开关。
+
+长桥模拟账户配置示例：
+
+```bash
+BROKER_TYPE=longbridge
+LONGBRIDGE_MODE=paper
+ENABLE_EXTERNAL_ORDER_SUBMISSION=true
+ENABLE_LIVE_TRADING=false
+```
+
+`LONGBRIDGE_MODE` 是 SynapseYield 的本地安全策略标签，不会替长桥 SDK 选择账户。
+实际连接模拟账户还是真实账户由长桥授权凭证和账户权限决定。第一次联调时应使用
+模拟账户凭证，并保持 `ENABLE_LIVE_TRADING=false`。
+
+真实账户必须同时满足：
+
+```bash
+BROKER_TYPE=longbridge
+LONGBRIDGE_MODE=live
+ENABLE_EXTERNAL_ORDER_SUBMISSION=true
+ENABLE_LIVE_TRADING=true
+```
+
+阶段五的交易推送会更新本地订单状态并保存原始事件，但不会根据外部推送直接猜测
+资金和持仓变化。资金、持仓和成交账本的差异修复由第六阶段对账流程负责。
+
 ### Milestone 6：对账与异常恢复
 
 - 实现订单对账。
@@ -858,8 +898,22 @@ pip install -e ".[dev]"
 APP_ENV=dev
 DATABASE_URL=mysql+pymysql://synapse:password@127.0.0.1:3306/synapse_yield
 ENABLE_LIVE_TRADING=false
+ENABLE_EXTERNAL_ORDER_SUBMISSION=false
+BROKER_TYPE=local_sim
+LONGBRIDGE_MODE=paper
 BASE_CURRENCY=USD
 ```
+
+使用长桥 Adapter 时，官方 SDK API Key 认证还需要：
+
+```bash
+LONGBRIDGE_APP_KEY=your_app_key
+LONGBRIDGE_APP_SECRET=your_app_secret
+LONGBRIDGE_ACCESS_TOKEN=your_access_token
+```
+
+也可以在应用层构造官方 OAuth `Config` 后注入 `LongbridgeSDKGateway`。密钥和
+Access Token 不得提交到代码仓库。
 
 ### MySQL 建库
 
@@ -968,6 +1022,7 @@ outbox_events
 - 策略 Adapter、标准输入输出、dry run 和历史行情回放。
 - Harness 编排入口，串联行情、策略、风控和本地 Broker 执行。
 - LangGraph 四 Agent 编排层，覆盖 Market、Strategy、Risk、Execution。
+- 长桥 OpenAPI Adapter，覆盖行情、账户、持仓、订单、下单、撤单和交易推送。
 
 ## 合规与安全边界
 

@@ -4,7 +4,8 @@ from typing import NotRequired, TypedDict
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from synapse_yield.broker.local_sim import LocalSimBroker
+from synapse_yield.broker.base import BrokerAdapter
+from synapse_yield.broker.factory import build_broker
 from synapse_yield.domain.enums import OrderStatus
 from synapse_yield.domain.ids import new_id
 from synapse_yield.domain.schemas import (
@@ -46,7 +47,7 @@ class AgentGraphConfig:
 
     strategy_runner: StrategyRunner
     order_service: OrderService
-    broker: LocalSimBroker
+    broker: BrokerAdapter
 
 
 class MarketAgent:
@@ -198,7 +199,7 @@ class RiskAgent:
 class ExecutionAgent:
     """Execution Agent：只提交已经通过风控的订单。"""
 
-    def __init__(self, broker: LocalSimBroker):
+    def __init__(self, broker: BrokerAdapter):
         self.broker = broker
 
     def __call__(self, state: AgentGraphState) -> AgentGraphState:
@@ -238,7 +239,7 @@ class TradingAgentGraph:
         self.config = config or AgentGraphConfig(
             strategy_runner=StrategyRunner(),
             order_service=order_service,
-            broker=LocalSimBroker(order_service=order_service),
+            broker=build_broker(order_service=order_service),
         )
         self.market_agent = MarketAgent()
         self.strategy_agent = StrategyAgent(self.config.strategy_runner)
