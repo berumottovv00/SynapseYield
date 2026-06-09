@@ -9,6 +9,7 @@ description = "Harness-driven quant trading simulator with broker adapters."
 requires-python = ">=3.12"
 dependencies = [
   "alembic>=1.13",
+  "langgraph>=0.2",
   "pydantic>=2.7",
   "pydantic-settings>=2.2",
   "pymysql>=1.1",

@@ -166,6 +166,7 @@ class HarnessRunResult(BaseModel):
     risk_decision_id: str | None = None
     broker_order_id: str | None = None
     order_status: OrderStatus | None = None
+    agent_path: tuple[str, ...] = ()
     dry_run: bool
     message: str
 
