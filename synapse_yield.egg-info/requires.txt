@@ -1,6 +1,7 @@
 alembic>=1.13
 langgraph>=0.2
 longbridge>=4.0
+openai>=2.0
 pydantic>=2.7
 pydantic-settings>=2.2
 pymysql>=1.1

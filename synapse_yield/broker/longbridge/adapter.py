@@ -76,6 +76,13 @@ class LongbridgeBroker:
             OrderStatus.SUBMITTING,
             "LONGBRIDGE_ORDER_SUBMITTING",
         )
+        # LIT/SLO 订单的触发价存在 raw_request 中（因 Order 模型无 trigger_price 列）
+        trigger_price = None
+        raw = order.raw_request or {}
+        if isinstance(raw.get("trigger_price"), (int, float, str)):
+            from decimal import Decimal as _D
+            trigger_price = _D(str(raw["trigger_price"]))
+
         request = LongbridgeSubmitRequest(
             client_order_id=order.client_order_id,
             symbol=order.symbol,
@@ -84,6 +91,7 @@ class LongbridgeBroker:
             quantity=order.quantity,
             limit_price=order.limit_price,
             time_in_force=order.time_in_force,
+            trigger_price=trigger_price,
         )
         try:
             broker_order_id = self.gateway.submit_order(request)

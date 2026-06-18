@@ -13,6 +13,8 @@ class OrderType(StrEnum):
 
     MARKET = "MARKET"  # 市价单，按当前可成交价格尽快成交
     LIMIT = "LIMIT"  # 限价单，只在达到指定价格条件时成交
+    LIMIT_IF_TOUCHED = "LIMIT_IF_TOUCHED"  # 触价限价单（长桥 LIT），价格触及触发价后转为限价单，用于止盈
+    STOP_LIMIT = "STOP_LIMIT"  # 止损限价单（长桥 SLO），价格跌至止损价后转为限价单，用于止损
 
 
 class TimeInForce(StrEnum):
@@ -52,3 +54,20 @@ class OutboxStatus(StrEnum):
     PENDING = "PENDING"  # 事件已写入本地消息表，等待发布或消费
     PUBLISHED = "PUBLISHED"  # 事件已成功发布或处理
     FAILED = "FAILED"  # 事件发布或处理失败，等待重试或人工处理
+
+
+class TradeAction(StrEnum):
+    """大模型可提出的交易动作。"""
+
+    BUY = "BUY"
+    SELL = "SELL"
+    HOLD = "HOLD"
+
+
+class LLMTradingRunStatus(StrEnum):
+    """LLM 交易 Agent 一次运行的当前状态。"""
+
+    AWAITING_APPROVAL = "AWAITING_APPROVAL"
+    REJECTED = "REJECTED"
+    NO_ACTION = "NO_ACTION"
+    COMPLETED = "COMPLETED"

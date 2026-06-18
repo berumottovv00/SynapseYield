@@ -186,8 +186,11 @@ class LocalSimBroker:
                 "cash_available": str(account.cash_available),
                 "cash_frozen": str(account.cash_frozen),
             }
+        elif self._is_bracket_order(order):
+            # 止盈/止损子单：配对买单尚未成交，持仓还不存在，跳过持仓预留。
+            output = {"bracket": order.order_type.value}
         else:
-            # 卖单不冻结现金，只从可用数量中扣除委托数量，总持仓暂时不变。
+            # 普通卖单从可用持仓中扣除委托数量，总持仓暂时不变。
             position = self._find_position(session, order.account_id, order.symbol)
             if position is None or position.available_quantity < order.quantity:
                 return "Available position is not enough to reserve this order"
@@ -203,6 +206,14 @@ class LocalSimBroker:
             output,
         )
         return None
+
+    @staticmethod
+    def _is_bracket_order(order: Order) -> bool:
+        """止盈（LIT）/止损（STOP_LIMIT）卖单在主买单成交前提交，需跳过持仓预留检查。"""
+        return order.side == OrderSide.SELL and order.order_type in {
+            OrderType.LIMIT_IF_TOUCHED,
+            OrderType.STOP_LIMIT,
+        }
 
     def _release_resources(self, session: Session, trace_id: str, order: Order) -> None:
         """释放撤单后不再占用的冻结现金或可卖持仓。"""
@@ -220,8 +231,11 @@ class LocalSimBroker:
                 "cash_available": str(account.cash_available),
                 "cash_frozen": str(account.cash_frozen),
             }
+        elif self._is_bracket_order(order):
+            # 止盈/止损子单未曾预留持仓，无需释放。
+            output = {"bracket": order.order_type.value}
         else:
-            # 卖单释放尚未成交的数量，为未来部分成交扩展保留计算方式。
+            # 普通卖单释放尚未成交的数量。
             position = self._find_position(session, order.account_id, order.symbol)
             if position is None:
                 raise ValueError(f"Position {order.account_id}/{order.symbol} does not exist")
@@ -244,13 +258,26 @@ class LocalSimBroker:
             if order.side == OrderSide.BUY:
                 return quote.ask_price or quote.last_price
             return quote.bid_price or quote.last_price
-        # 领域模型已经禁止无价格限价单，这里仍做防御性处理。
+
         if order.limit_price is None:
             return None
-        # 买入限价覆盖卖一、卖出限价不高于买一时，订单具备成交条件。
+
+        # 止盈触价限价卖单（LIT）：价格≥触发价时按 limit_price 成交（模拟：用 limit_price 作触发价）
+        if order.order_type == OrderType.LIMIT_IF_TOUCHED and order.side == OrderSide.SELL:
+            bid_price = quote.bid_price or quote.last_price
+            return bid_price if bid_price >= order.limit_price else None
+
+        # 止损限价卖单（STOP_LIMIT）：价格≤触发价时以 limit_price 成交
+        if order.order_type == OrderType.STOP_LIMIT and order.side == OrderSide.SELL:
+            bid_price = quote.bid_price or quote.last_price
+            return bid_price if bid_price <= order.limit_price else None
+
+        # 普通买入限价：bid_price 覆盖卖一时成交
         if order.side == OrderSide.BUY:
             ask_price = quote.ask_price or quote.last_price
             return ask_price if order.limit_price >= ask_price else None
+
+        # 普通卖出限价：卖出价≥买一时成交
         bid_price = quote.bid_price or quote.last_price
         return bid_price if order.limit_price <= bid_price else None
 

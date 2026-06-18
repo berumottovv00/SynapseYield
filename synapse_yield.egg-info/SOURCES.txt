@@ -8,6 +8,8 @@ synapse_yield.egg-info/requires.txt
 synapse_yield.egg-info/top_level.txt
 synapse_yield/agents/__init__.py
 synapse_yield/agents/graph.py
+synapse_yield/agents/llm_provider.py
+synapse_yield/agents/llm_trading.py
 synapse_yield/broker/__init__.py
 synapse_yield/broker/base.py
 synapse_yield/broker/factory.py
@@ -17,6 +19,7 @@ synapse_yield/broker/longbridge/adapter.py
 synapse_yield/broker/longbridge/gateway.py
 synapse_yield/broker/longbridge/types.py
 synapse_yield/demo/__init__.py
+synapse_yield/demo/llm_trade_agent.py
 synapse_yield/demo/local_sim_trade.py
 synapse_yield/domain/__init__.py
 synapse_yield/domain/enums.py
@@ -37,6 +40,7 @@ synapse_yield/strategy/adapters.py
 synapse_yield/strategy/examples.py
 synapse_yield/strategy/runner.py
 tests/test_agent_graph.py
+tests/test_llm_trading_agent.py
 tests/test_local_sim_broker.py
 tests/test_longbridge_broker.py
 tests/test_longbridge_gateway.py

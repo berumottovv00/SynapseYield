@@ -142,43 +142,6 @@ class RiskEngine:
             )
 
         # 仓位比例只限制新增买入；卖出会降低风险敞口，无需执行这两项拦截。
-        if intent.side == OrderSide.BUY and account.equity > 0:
-            position = session.scalar(
-                select(Position).where(
-                    Position.account_id == intent.account_id,
-                    Position.symbol == intent.symbol,
-                )
-            )
-            # 计算下单后的单标的预计市值占账户权益比例。
-            current_symbol_value = position.market_value if position else Decimal("0")
-            checked_rules.append("max_position_ratio_per_symbol")
-            symbol_ratio = (current_symbol_value + estimated_value) / account.equity
-            input_snapshot["projected_symbol_position_ratio"] = str(symbol_ratio)
-            if symbol_ratio > self.config.max_position_ratio_per_symbol:
-                return self._rejected(
-                    "MAX_POSITION_RATIO_EXCEEDED",
-                    "Order would exceed the maximum position ratio for this symbol",
-                    checked_rules,
-                    input_snapshot,
-                )
-
-            # 汇总全部持仓后加入本次订单金额，计算预计总仓位比例。
-            checked_rules.append("max_total_position_ratio")
-            total_market_value = session.scalar(
-                select(func.coalesce(func.sum(Position.market_value), 0)).where(
-                    Position.account_id == intent.account_id
-                )
-            )
-            total_ratio = (Decimal(str(total_market_value)) + estimated_value) / account.equity
-            input_snapshot["projected_total_position_ratio"] = str(total_ratio)
-            if total_ratio > self.config.max_total_position_ratio:
-                return self._rejected(
-                    "MAX_TOTAL_POSITION_RATIO_EXCEEDED",
-                    "Order would exceed the maximum total position ratio",
-                    checked_rules,
-                    input_snapshot,
-                )
-
         # 有行情时限制限价偏离，拦截价格单位错误或明显异常的委托。
         if intent.limit_price is not None and quote is not None:
             checked_rules.append("limit_price_deviation")

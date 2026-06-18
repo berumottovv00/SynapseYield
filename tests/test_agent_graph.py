@@ -5,12 +5,15 @@ import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from synapse_yield.agents.graph import TradingAgentGraph
+from synapse_yield.agents.graph import AgentGraphConfig, TradingAgentGraph
+from synapse_yield.broker.local_sim import LocalSimBroker
 from synapse_yield.domain.enums import OrderSide, OrderStatus, OrderType
 from synapse_yield.domain.schemas import MarketDataSnapshot, StrategyOutput
+from synapse_yield.harness.order_service import OrderService
 from synapse_yield.storage.base import Base
 from synapse_yield.storage.models import Account, Fill, Order, RiskDecision
 from synapse_yield.strategy.adapters import CallableStrategyAdapter
+from synapse_yield.strategy.runner import StrategyRunner
 
 
 def _session() -> Session:
@@ -67,6 +70,19 @@ def _adapter():
     )
 
 
+def _graph() -> TradingAgentGraph:
+    """显式使用本地 Broker，避免开发者 .env 改变单元测试语义。"""
+
+    order_service = OrderService()
+    return TradingAgentGraph(
+        AgentGraphConfig(
+            strategy_runner=StrategyRunner(),
+            order_service=order_service,
+            broker=LocalSimBroker(order_service=order_service),
+        )
+    )
+
+
 @pytest.fixture(autouse=True)
 def disable_langsmith_tracing(monkeypatch: pytest.MonkeyPatch) -> None:
     """测试只验证本地图，不向 LangSmith 发送追踪数据。"""
@@ -80,7 +96,7 @@ def test_four_agents_execute_in_order_and_fill_order() -> None:
 
     session = _session()
     account = _account(session)
-    result = TradingAgentGraph().run_market_snapshot(
+    result = _graph().run_market_snapshot(
         session,
         _adapter(),
         _snapshot(),
@@ -102,7 +118,7 @@ def test_dry_run_stops_after_strategy_agent() -> None:
 
     session = _session()
     account = _account(session)
-    result = TradingAgentGraph().run_market_snapshot(
+    result = _graph().run_market_snapshot(
         session,
         _adapter(),
         _snapshot(),
@@ -121,7 +137,7 @@ def test_risk_rejection_stops_before_execution_agent() -> None:
 
     session = _session()
     account = _account(session, cash="50")
-    result = TradingAgentGraph().run_market_snapshot(
+    result = _graph().run_market_snapshot(
         session,
         _adapter(),
         _snapshot(),
@@ -141,7 +157,7 @@ def test_langgraph_entrypoint_returns_filled_result() -> None:
     session = _session()
     account = _account(session)
 
-    result = TradingAgentGraph().run_market_snapshot(
+    result = _graph().run_market_snapshot(
         session,
         _adapter(),
         _snapshot(),

@@ -30,6 +30,14 @@ class LongbridgeGateway(Protocol):
 
     def quote(self, symbol: str) -> MarketDataSnapshot: ...
 
+    def history_candlesticks(
+        self,
+        symbol: str,
+        period: str = "Day",
+        count: int = 60,
+        adjust: str = "NoAdjust",
+    ) -> list[Any]: ...
+
     def subscribe_order_events(self, handler: Callable[[dict], None]) -> None: ...
 
     def subscribe_quote_events(
@@ -118,6 +126,8 @@ class LongbridgeSDKGateway:
         }
         if request.limit_price is not None:
             kwargs["submitted_price"] = request.limit_price
+        if request.trigger_price is not None:
+            kwargs["trigger_price"] = request.trigger_price
         response = self.trade_context.submit_order(**kwargs)
         return str(self._read(response, "order_id"))
 
@@ -177,6 +187,26 @@ class LongbridgeSDKGateway:
             source="longbridge",
         )
 
+    def history_candlesticks(
+        self,
+        symbol: str,
+        period: str = "Day",
+        count: int = 60,
+        adjust: str = "NoAdjust",
+    ) -> list[Any]:
+        """拉取历史 K 线，返回原始 SDK Candlestick 对象列表。"""
+        period_enum = self._enum_member(self.sdk.Period, period)
+        adjust_enum = self._enum_member(self.sdk.AdjustType, adjust)
+        return list(
+            self.quote_context.history_candlesticks_by_offset(
+                symbol,
+                period_enum,
+                adjust_enum,
+                forward=False,
+                count=count,
+            )
+        )
+
     def subscribe_order_events(self, handler: Callable[[dict], None]) -> None:
         """订阅长桥私有交易主题，并把 SDK 对象转换为普通字典。"""
 
@@ -203,7 +233,13 @@ class LongbridgeSDKGateway:
         )
 
     def _order_type(self, order_type: OrderType):
-        candidates = ("MO", "Market") if order_type == OrderType.MARKET else ("LO", "Limit")
+        mapping = {
+            OrderType.MARKET: ("MO", "Market"),
+            OrderType.LIMIT: ("LO", "Limit"),
+            OrderType.LIMIT_IF_TOUCHED: ("LIT",),   # 触价限价单（止盈）
+            OrderType.STOP_LIMIT: ("SLO",),          # 止损限价单（止损）
+        }
+        candidates = mapping.get(order_type, ("LO", "Limit"))
         return self._enum_member(self.sdk.OrderType, *candidates)
 
     def _time_in_force(self, time_in_force: TimeInForce):

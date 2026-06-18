@@ -1,11 +1,14 @@
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+_ENV_FILE = Path(__file__).parent.parent / ".env"
+
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    model_config = SettingsConfigDict(env_file=_ENV_FILE, env_file_encoding="utf-8")
 
     app_env: str = Field(default="dev", alias="APP_ENV")
     database_url: str = Field(
@@ -43,7 +46,15 @@ class Settings(BaseSettings):
         default="AAPL.US",
         alias="LONGBRIDGE_TEST_SYMBOL",
     )
+    enable_llm_trading_agent: bool = Field(
+        default=False,
+        alias="ENABLE_LLM_TRADING_AGENT",
+    )
+    openai_api_key: SecretStr | None = Field(default=None, alias="OPENAI_API_KEY")
+    openai_model: str = Field(default="gpt-5.4-mini", alias="OPENAI_MODEL")
     base_currency: str = Field(default="USD", alias="BASE_CURRENCY")
+    web_host: str = Field(default="127.0.0.1", alias="WEB_HOST")
+    web_port: int = Field(default=7878, alias="WEB_PORT")
 
 
 @lru_cache

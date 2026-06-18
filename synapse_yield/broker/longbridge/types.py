@@ -15,6 +15,7 @@ class LongbridgeSubmitRequest:
     quantity: Decimal
     time_in_force: TimeInForce
     limit_price: Decimal | None = None
+    trigger_price: Decimal | None = None  # LIT（止盈）/ SLO（止损）触发价
 
 
 @dataclass(frozen=True)
