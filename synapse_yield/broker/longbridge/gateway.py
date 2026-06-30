@@ -113,6 +113,8 @@ class LongbridgeSDKGateway:
         self.trade_context = trade_context or sdk.TradeContext(config)
         self.quote_context = quote_context or sdk.QuoteContext(config)
 
+    # 将内部订单枚举（OrderType/OrderSide/TimeInForce）转为长桥 SDK 枚举后提交订单，
+    # 返回长桥分配的 broker_order_id。
     def submit_order(self, request: LongbridgeSubmitRequest) -> str:
         """把内部订单枚举转换成 SDK 枚举后提交订单。"""
 
@@ -131,13 +133,16 @@ class LongbridgeSDKGateway:
         response = self.trade_context.submit_order(**kwargs)
         return str(self._read(response, "order_id"))
 
+    # 向长桥发送撤单请求，不等待最终确认，结果由推送或主动查询跟进。
     def cancel_order(self, broker_order_id: str) -> None:
         self.trade_context.cancel_order(broker_order_id)
 
+    # 查询账户资金快照，解析 SDK 返回的多币种余额结构，提取与账户主货币匹配的可用资金。
     def account_balances(self) -> list[BrokerAccountSnapshot]:
         balances = self.trade_context.account_balance()
         return [self._account_snapshot(item) for item in balances]
 
+    # 查询当前所有股票持仓，遍历 SDK 返回的 channel/positions 嵌套结构，展平为列表。
     def positions(self) -> list[BrokerPositionSnapshot]:
         response = self.trade_context.stock_positions()
         channels = self._read(response, "channels", default=response)
@@ -163,12 +168,15 @@ class LongbridgeSDKGateway:
                 )
         return positions
 
+    # 按 broker_order_id 查询单笔订单的详细信息。
     def order_detail(self, broker_order_id: str) -> BrokerOrderSnapshot:
         return self._order_snapshot(self.trade_context.order_detail(broker_order_id))
 
+    # 查询当日所有订单列表。
     def list_orders(self) -> list[BrokerOrderSnapshot]:
         return [self._order_snapshot(item) for item in self.trade_context.today_orders()]
 
+    # 查询单只股票的实时行情快照，将 SDK 返回的字段统一映射到 MarketDataSnapshot。
     def quote(self, symbol: str) -> MarketDataSnapshot:
         response = self.quote_context.quote([symbol])
         item = response[0]
@@ -176,17 +184,19 @@ class LongbridgeSDKGateway:
         if not isinstance(timestamp, datetime):
             timestamp = datetime.now(UTC)
         return MarketDataSnapshot(
-            symbol=str(self._read(item, "symbol", default=symbol)),
-            timestamp=timestamp,
-            last_price=self._decimal(self._read(item, "last_done", "last_price")),
-            open_price=self._optional_decimal(self._read(item, "open", default=None)),
-            high_price=self._optional_decimal(self._read(item, "high", default=None)),
-            low_price=self._optional_decimal(self._read(item, "low", default=None)),
-            volume=self._optional_decimal(self._read(item, "volume", default=None)),
-            turnover=self._optional_decimal(self._read(item, "turnover", default=None)),
-            source="longbridge",
+            symbol=str(self._read(item, "symbol", default=symbol)),  # 股票代码，如 AAPL.US
+            timestamp=timestamp,                                       # 行情时间戳
+            last_price=self._decimal(self._read(item, "last_done", "last_price")),  # 最新成交价
+            open_price=self._optional_decimal(self._read(item, "open", default=None)),   # 今日开盘价
+            high_price=self._optional_decimal(self._read(item, "high", default=None)),   # 今日最高价
+            low_price=self._optional_decimal(self._read(item, "low", default=None)),     # 今日最低价
+            volume=self._optional_decimal(self._read(item, "volume", default=None)),     # 成交量（股数）
+            turnover=self._optional_decimal(self._read(item, "turnover", default=None)), # 成交额（金额）
+            source="longbridge",                                       # 行情来源标识
         )
 
+    # 拉取指定股票的历史 K 线数据。period 为周期（Day/Week 等），
+    # count 为根数，adjust 为复权方式（NoAdjust/ForwardAdjust 等）。
     def history_candlesticks(
         self,
         symbol: str,
@@ -207,6 +217,8 @@ class LongbridgeSDKGateway:
             )
         )
 
+    # 订阅长桥私有交易推送，每条推送先序列化为 dict 再交给 handler，
+    # 屏蔽 SDK 对象类型，让上层代码无需依赖长桥 SDK。
     def subscribe_order_events(self, handler: Callable[[dict], None]) -> None:
         """订阅长桥私有交易主题，并把 SDK 对象转换为普通字典。"""
 
@@ -214,6 +226,7 @@ class LongbridgeSDKGateway:
         private_topic = self._enum_member(self.sdk.TopicType, "Private")
         self.trade_context.subscribe([private_topic])
 
+    # 订阅指定股票的实时行情推送，把 symbol 和行情字段合并成 dict 后交给 handler。
     def subscribe_quote_events(
         self,
         symbols: list[str],
@@ -225,6 +238,7 @@ class LongbridgeSDKGateway:
         quote_type = self._enum_member(self.sdk.SubType, "Quote")
         self.quote_context.subscribe(symbols, [quote_type])
 
+    # 将内部 OrderSide 枚举转为长桥 SDK 的 OrderSide 枚举。
     def _order_side(self, side: OrderSide):
         return self._enum_member(
             self.sdk.OrderSide,
@@ -232,6 +246,7 @@ class LongbridgeSDKGateway:
             side.value,
         )
 
+    # 将内部 OrderType 枚举映射为长桥 SDK 的 OrderType 枚举（含 LIT/SLO 条件单）。
     def _order_type(self, order_type: OrderType):
         mapping = {
             OrderType.MARKET: ("MO", "Market"),
@@ -242,6 +257,7 @@ class LongbridgeSDKGateway:
         candidates = mapping.get(order_type, ("LO", "Limit"))
         return self._enum_member(self.sdk.OrderType, *candidates)
 
+    # 将内部 TimeInForce 枚举转为长桥 SDK 的 TimeInForceType 枚举。
     def _time_in_force(self, time_in_force: TimeInForce):
         candidates = (
             ("Day", "DAY")
@@ -250,6 +266,8 @@ class LongbridgeSDKGateway:
         )
         return self._enum_member(self.sdk.TimeInForceType, *candidates)
 
+    # 将 SDK 返回的单条账户余额对象解析为 BrokerAccountSnapshot，
+    # 从 cash_infos 中找到与账户主货币匹配的条目来提取可用资金。
     def _account_snapshot(self, item: Any) -> BrokerAccountSnapshot:
         raw = self._to_dict(item)
         currency = str(self._read(item, "currency", default=""))
@@ -275,6 +293,7 @@ class LongbridgeSDKGateway:
             raw_payload=raw,
         )
 
+    # 将 SDK 返回的单条订单对象解析为 BrokerOrderSnapshot，兼容多种字段名写法。
     def _order_snapshot(self, item: Any) -> BrokerOrderSnapshot:
         raw = self._to_dict(item)
         return BrokerOrderSnapshot(
@@ -294,6 +313,7 @@ class LongbridgeSDKGateway:
             raw_payload=raw,
         )
 
+    # 从 SDK 对象或 dict 中按多个候选字段名依次读取值，全部缺失且无 default 时抛出异常。
     @staticmethod
     def _read(item: Any, *names: str, default: Any = ...):
         for name in names:
@@ -305,6 +325,7 @@ class LongbridgeSDKGateway:
             return default
         raise AttributeError(f"Missing fields {names!r} in Longbridge SDK response")
 
+    # 将任意 SDK 对象序列化为普通 dict，依次尝试 dict/model_dump/__dict__/公开字段提取。
     @classmethod
     def _to_dict(cls, item: Any) -> dict:
         if isinstance(item, dict):
@@ -323,6 +344,7 @@ class LongbridgeSDKGateway:
             return extracted
         return {"value": str(item)}
 
+    # 将单个值递归转为 JSON 可序列化类型（Decimal→str，datetime→ISO，枚举→str 等）。
     @classmethod
     def _json_value(cls, value: Any) -> Any:
         if isinstance(value, Decimal):
@@ -339,18 +361,23 @@ class LongbridgeSDKGateway:
             return str(value.value)
         return str(value)
 
+    # 将任意值转为 Decimal，先转 str 再解析，避免浮点精度问题。
     @staticmethod
     def _decimal(value: Any) -> Decimal:
         return Decimal(str(value))
 
+    # 可空版本的 _decimal，None 输入直接返回 None。
     @classmethod
     def _optional_decimal(cls, value: Any) -> Decimal | None:
         return None if value is None else cls._decimal(value)
 
+    # 可空版本的 str 转换，None 输入直接返回 None。
     @staticmethod
     def _optional_string(value: Any) -> str | None:
         return None if value is None else str(value)
 
+    # 按候选名称列表依次查找长桥 SDK 枚举成员，全部找不到时抛出明确错误。
+    # 用于兼容不同版本 SDK 对同一枚举的不同命名。
     @staticmethod
     def _enum_member(enum_type: Any, *candidates: str):
         for candidate in candidates:

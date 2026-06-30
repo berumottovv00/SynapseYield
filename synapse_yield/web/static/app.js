@@ -3,6 +3,9 @@
 const sessionId = crypto.randomUUID();
 const ws = new WebSocket(`ws://${location.host}/ws/${sessionId}`);
 
+// 用户自定义 prompt（null 表示使用服务端默认值）
+let _customPrompt = null;
+
 const $messages = document.getElementById('messages');
 const $input    = document.getElementById('userInput');
 
@@ -38,19 +41,140 @@ function sendText() {
   autoResize();
 
   ws.send(JSON.stringify({
-    type:        'message',
+    type:          'message',
     text,
-    account_id:  document.getElementById('accountId').value.trim(),
-    reviewer:    document.getElementById('reviewer').value.trim(),
-    report_path: document.getElementById('reportPath').value.trim(),
-    n:           parseInt(document.getElementById('topN').value, 10),
-    symbols:     parsedSymbols(),
+    account_id:    document.getElementById('accountId').value.trim(),
+    n:             parseInt(document.getElementById('topN').value, 10),
+    custom_prompt: _customPrompt,
   }));
 }
 
-function parsedSymbols() {
-  const raw = document.getElementById('symbols').value.trim();
-  return raw ? raw.split(/\s+/) : null;
+// ── Tab 切换 ───────────────────────────────────────────────────────────────────
+
+let _reportLoaded = false;
+
+function switchTab(name) {
+  // 切换 tab 高亮
+  document.getElementById('tab-chat').classList.toggle('active', name === 'chat');
+  document.getElementById('tab-report').classList.toggle('active', name === 'report');
+
+  // 切换视图（直接操作 display，避免 CSS 特异性问题）
+  document.getElementById('view-chat').style.display   = name === 'chat'   ? 'flex' : 'none';
+  document.getElementById('view-report').style.display = name === 'report' ? 'flex' : 'none';
+
+  if (name === 'report' && !_reportLoaded) {
+    _reportLoaded = true;
+    loadReport();
+  }
+}
+
+// ── 设置弹窗 ───────────────────────────────────────────────────────────────────
+
+async function openSettings() {
+  const $ta = document.getElementById('promptTextarea');
+  if (!$ta.value) {
+    // 首次打开：从服务端拉取默认 prompt
+    try {
+      const res = await fetch('/api/prompt');
+      const data = await res.json();
+      $ta.value = _customPrompt ?? data.prompt;
+    } catch {
+      $ta.value = _customPrompt ?? '';
+    }
+  } else {
+    $ta.value = _customPrompt ?? $ta.value;
+  }
+  document.getElementById('settingsModal').classList.add('open');
+}
+
+function closeSettings() {
+  document.getElementById('settingsModal').classList.remove('open');
+}
+
+function closeSettingsOnBg(e) {
+  if (e.target === document.getElementById('settingsModal')) closeSettings();
+}
+
+function saveSettings() {
+  const val = document.getElementById('promptTextarea').value.trim();
+  _customPrompt = val || null;
+  closeSettings();
+}
+
+// ── 报告加载 ───────────────────────────────────────────────────────────────────
+
+async function loadReport() {
+  const $c = document.getElementById('reportContent');
+  try {
+    const res = await fetch('/api/report');
+    const data = await res.json();
+    if (!data.found) {
+      $c.className = 'report-not-found';
+      $c.innerHTML = `<div class="icon">📄</div>尚未生成研报`;
+    } else {
+      $c.className = '';
+      $c.innerHTML = `<div class="report-body">${renderMarkdown(data.content)}</div>`;
+    }
+  } catch (e) {
+    $c.className = 'report-not-found';
+    $c.innerHTML = `<div class="icon">⚠️</div>加载失败：${e.message}`;
+  }
+}
+
+function renderMarkdown(md) {
+  const lines = md.split('\n');
+  let html = '';
+  let inCode = false;
+  let inList = false;
+
+  for (let line of lines) {
+    if (line.startsWith('```')) {
+      if (inList) { html += '</ul>'; inList = false; }
+      inCode = !inCode;
+      html += inCode ? '<pre><code>' : '</code></pre>';
+      continue;
+    }
+    if (inCode) { html += escHtml(line) + '\n'; continue; }
+
+    if (/^### (.+)/.test(line)) {
+      if (inList) { html += '</ul>'; inList = false; }
+      html += `<h3>${inline(line.slice(4))}</h3>`;
+    } else if (/^## (.+)/.test(line)) {
+      if (inList) { html += '</ul>'; inList = false; }
+      html += `<h2>${inline(line.slice(3))}</h2>`;
+    } else if (/^# (.+)/.test(line)) {
+      if (inList) { html += '</ul>'; inList = false; }
+      html += `<h1>${inline(line.slice(2))}</h1>`;
+    } else if (/^---+$/.test(line.trim())) {
+      if (inList) { html += '</ul>'; inList = false; }
+      html += '<hr>';
+    } else if (/^> (.+)/.test(line)) {
+      if (inList) { html += '</ul>'; inList = false; }
+      html += `<blockquote>${inline(line.slice(2))}</blockquote>`;
+    } else if (/^[-*] (.+)/.test(line)) {
+      if (!inList) { html += '<ul>'; inList = true; }
+      html += `<li>${inline(line.slice(2))}</li>`;
+    } else if (line.trim() === '') {
+      if (inList) { html += '</ul>'; inList = false; }
+      html += '';
+    } else {
+      if (inList) { html += '</ul>'; inList = false; }
+      html += `<p>${inline(line)}</p>`;
+    }
+  }
+  if (inList) html += '</ul>';
+  return html;
+}
+
+function inline(text) {
+  return escHtml(text)
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/`(.+?)`/g, '<code>$1</code>');
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
 // ── 渲染选股卡片 ───────────────────────────────────────────────────────────────

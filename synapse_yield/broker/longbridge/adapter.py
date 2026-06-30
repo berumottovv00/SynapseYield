@@ -21,11 +21,11 @@ from synapse_yield.storage.models import BrokerEvent, Order
 
 @dataclass(frozen=True)
 class LongbridgeBrokerConfig:
-    """长桥交易安全配置，默认禁止任何外部下单。"""
+    """长桥交易安全配置，默认禁止任何外部下单。由 .env 通过 factory.py 注入。"""
 
-    mode: str = "paper"
-    enable_order_submission: bool = False
-    enable_live_trading: bool = False
+    mode: str = "paper"                      # .env: LONGBRIDGE_MODE（paper / live）
+    enable_order_submission: bool = False    # .env: ENABLE_EXTERNAL_ORDER_SUBMISSION
+    enable_live_trading: bool = False        # .env: ENABLE_LIVE_TRADING（mode=live 时才生效）
 
 
 class LongbridgeBroker:
@@ -44,6 +44,9 @@ class LongbridgeBroker:
         self.order_service = order_service or OrderService()
         self.config = config or LongbridgeBrokerConfig()
 
+    # 向长桥提交订单。先检查安全开关，通过后将订单状态推进到 SUBMITTING，
+    # 调用 gateway 发送请求。成功则记录 broker_order_id 并置为 SUBMITTED；
+    # 网络异常置为 RECONCILING（需人工对账），其他异常置为 FAILED。
     def submit_order(
         self,
         session: Session,
@@ -156,6 +159,8 @@ class LongbridgeBroker:
             message=f"Order accepted by Longbridge {self.config.mode} account",
         )
 
+    # 请求撤销已提交的订单。将状态置为 CANCEL_PENDING 后调用 gateway 发送撤单请求。
+    # 撤单结果不立即确认，最终状态由后续长桥推送或主动查询来更新。
     def cancel_order(
         self,
         session: Session,
@@ -222,21 +227,29 @@ class LongbridgeBroker:
             message="Longbridge cancel request accepted",
         )
 
+    # 查询账户资金快照（余额、冻结资金、净资产等）。
     def account_balances(self) -> list[BrokerAccountSnapshot]:
         return self.gateway.account_balances()
 
+    # 查询当前所有持仓列表。
     def positions(self) -> list[BrokerPositionSnapshot]:
         return self.gateway.positions()
 
+    # 按 broker_order_id 查询单笔订单的详细信息。
     def get_order(self, broker_order_id: str) -> BrokerOrderSnapshot:
         return self.gateway.order_detail(broker_order_id)
 
+    # 查询账户下所有订单列表。
     def list_orders(self) -> list[BrokerOrderSnapshot]:
         return self.gateway.list_orders()
 
+    # 查询单只股票的实时行情快照（最新价、买一卖一等）。
     def quote(self, symbol: str) -> MarketDataSnapshot:
         return self.gateway.quote(symbol)
 
+    # 处理长桥主动推送的订单状态变更事件。将原始 payload 写入 BrokerEvent 审计表，
+    # 再把长桥状态映射为内部 OrderStatus，推进本地状态机。
+    # 订单成交或撤销时会额外入队领域事件，供下游（如止盈止损）消费。
     def handle_order_event(
         self,
         session: Session,
@@ -299,6 +312,8 @@ class LongbridgeBroker:
                 )
         return order
 
+    # 向长桥 SDK 注册订单推送监听。每条推送在独立的数据库事务里处理，
+    # 成功则 commit，失败则 rollback，避免在回调中长期持有 Session。
     def subscribe_order_events(
         self,
         session_factory: Callable[[], Session],
@@ -318,6 +333,7 @@ class LongbridgeBroker:
 
         self.gateway.subscribe_order_events(handler)
 
+    # 订阅指定股票的实时行情推送，每次行情变动触发调用方传入的 handler。
     def subscribe_quote_events(
         self,
         symbols: list[str],
@@ -325,6 +341,7 @@ class LongbridgeBroker:
     ) -> None:
         self.gateway.subscribe_quote_events(symbols, handler)
 
+    # 检查安全开关是否允许向长桥提交订单。返回 None 表示可以提交，返回字符串则是拒绝原因。
     def _submission_safety_error(self) -> str | None:
         mode = self.config.mode.lower()
         if mode not in {"paper", "live"}:
@@ -335,6 +352,7 @@ class LongbridgeBroker:
             return "Live trading is disabled"
         return None
 
+    # 将长桥返回的订单状态字符串映射为内部 OrderStatus 枚举，无法识别时返回 None。
     @staticmethod
     def _map_order_status(value: object) -> OrderStatus | None:
         if value is None:
@@ -370,6 +388,7 @@ class LongbridgeBroker:
                 return status
         return None
 
+    # 向数据库写入一条 BrokerEvent 审计记录，用于追踪每一次与长桥的交互。
     def _record_event(
         self,
         session: Session,
@@ -390,6 +409,7 @@ class LongbridgeBroker:
             )
         )
 
+    # 从推送 payload 中按多个候选字段名依次查找，返回第一个存在的值。
     @staticmethod
     def _payload_value(payload: dict, *names: str):
         for name in names:
@@ -397,6 +417,7 @@ class LongbridgeBroker:
                 return payload[name]
         return None
 
+    # 将任意值转为字符串，None 仍返回 None，用于统一处理可选的 ID 字段。
     @staticmethod
     def _optional_string(value: object) -> str | None:
         return None if value is None else str(value)

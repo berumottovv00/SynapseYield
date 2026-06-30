@@ -36,8 +36,8 @@ class HarnessState(TypedDict):
     reviewer: str
     report_content: str
     n: int
-    symbols: list[str] | None
     instructions: str | None  # 累积的 refine 指令，select 意图时维护
+    custom_prompt: NotRequired[str | None]  # 用户自定义 system prompt
     intent: NotRequired[str]              # interpret 节点输出：select / order / chat
     pending_picks: NotRequired[list[dict]]  # 上次选股结果（由 app.py 传入）
     picks: NotRequired[list[dict]]
@@ -151,8 +151,8 @@ class HarnessAgentGraph:
             state["report_content"],
             state["account_id"],
             n=state["n"],
-            symbols=state.get("symbols"),
             instructions=state.get("instructions"),
+            custom_prompt=state.get("custom_prompt"),
         )
 
         if result.market_summary:

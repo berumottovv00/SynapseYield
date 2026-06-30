@@ -62,7 +62,7 @@
       line-height: 1.6;
     }
 
-    /* ── 聊天主区域 ── */
+    /* ── 主区域 ── */
     .chat-wrapper {
       flex: 1;
       display: flex;
@@ -70,22 +70,81 @@
       min-width: 0;
     }
 
-    .chat-header {
+    /* ── Tab 栏 ── */
+    .tab-bar {
       background: #fff;
       border-bottom: 1px solid #e5e7eb;
-      padding: 14px 24px;
-      font-size: 15px;
+      display: flex;
+      align-items: stretch;
+      padding: 0 24px;
+      gap: 4px;
+    }
+    .tab-btn {
+      padding: 14px 18px;
+      font-size: 14px;
       font-weight: 600;
-      color: #111827;
+      color: #6b7280;
+      background: none;
+      border: none;
+      border-bottom: 3px solid transparent;
+      cursor: pointer;
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 6px;
+      transition: color .15s, border-color .15s;
+      margin-bottom: -1px;
     }
-    .chat-header .dot {
+    .tab-btn:hover { color: #374151; }
+    .tab-btn.active { color: #6366f1; border-bottom-color: #6366f1; }
+    .tab-btn .dot {
       width: 8px; height: 8px;
       border-radius: 50%;
       background: #10b981;
     }
+
+    /* ── 视图切换 ── */
+    .view { flex: 1; flex-direction: column; min-height: 0; }
+
+    /* ── 报告视图 ── */
+    .report-view {
+      overflow-y: auto;
+      padding: 32px 40px;
+      background: #f9fafb;
+    }
+    .report-view::-webkit-scrollbar { width: 4px; }
+    .report-view::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
+    .report-body {
+      max-width: 800px;
+      margin: 0 auto;
+      background: #fff;
+      border-radius: 12px;
+      padding: 32px 36px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.06);
+      font-size: 14px;
+      line-height: 1.8;
+      color: #374151;
+    }
+    .report-body h1 { font-size: 22px; color: #111827; margin: 0 0 16px; font-weight: 700; }
+    .report-body h2 { font-size: 17px; color: #1f2937; margin: 24px 0 10px; font-weight: 700; border-bottom: 1px solid #f3f4f6; padding-bottom: 6px; }
+    .report-body h3 { font-size: 15px; color: #374151; margin: 18px 0 8px; font-weight: 600; }
+    .report-body p  { margin: 0 0 10px; }
+    .report-body strong { font-weight: 700; color: #111827; }
+    .report-body em { font-style: italic; }
+    .report-body ul, .report-body ol { padding-left: 22px; margin: 0 0 10px; }
+    .report-body li { margin-bottom: 4px; }
+    .report-body code { background: #f3f4f6; padding: 1px 6px; border-radius: 4px; font-size: 13px; font-family: monospace; }
+    .report-body pre { background: #f3f4f6; padding: 14px 16px; border-radius: 8px; overflow-x: auto; margin: 0 0 12px; }
+    .report-body pre code { background: none; padding: 0; }
+    .report-body blockquote { border-left: 3px solid #d1d5db; padding-left: 14px; color: #6b7280; margin: 0 0 10px; }
+    .report-body hr { border: none; border-top: 1px solid #e5e7eb; margin: 20px 0; }
+    .report-not-found {
+      text-align: center;
+      padding: 80px 20px;
+      color: #9ca3af;
+      font-size: 15px;
+    }
+    .report-not-found .icon { font-size: 36px; margin-bottom: 12px; }
+    .report-loading { text-align: center; padding: 60px; color: #9ca3af; font-size: 14px; }
 
     .messages {
       flex: 1;
@@ -355,6 +414,87 @@
     .messages::-webkit-scrollbar { width: 4px; }
     .messages::-webkit-scrollbar-track { background: transparent; }
     .messages::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
+
+    /* ── 设置按钮 ── */
+    .btn-settings {
+      margin-top: auto;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #252840;
+      border: 1px solid #353857;
+      border-radius: 8px;
+      color: #9ca3af;
+      padding: 9px 12px;
+      font-size: 13px;
+      cursor: pointer;
+      width: 100%;
+      transition: color .15s, border-color .15s;
+    }
+    .btn-settings:hover { color: #e5e7eb; border-color: #6366f1; }
+
+    /* ── 设置弹窗 ── */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.45);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal {
+      background: #1e2130;
+      border: 1px solid #353857;
+      border-radius: 14px;
+      padding: 24px;
+      width: 560px;
+      max-width: 92vw;
+      max-height: 80vh;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .modal h2 { font-size: 15px; font-weight: 700; color: #fff; }
+    .modal p.modal-sub { font-size: 12px; color: #6b7280; line-height: 1.5; }
+    .modal textarea {
+      flex: 1;
+      min-height: 280px;
+      background: #252840;
+      border: 1px solid #353857;
+      border-radius: 8px;
+      color: #e5e7eb;
+      padding: 12px 14px;
+      font-size: 13px;
+      font-family: "SF Mono", "Fira Code", monospace;
+      line-height: 1.6;
+      resize: vertical;
+      outline: none;
+    }
+    .modal textarea:focus { border-color: #6366f1; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
+    .btn-modal-cancel {
+      background: transparent;
+      border: 1px solid #353857;
+      border-radius: 8px;
+      color: #9ca3af;
+      padding: 8px 18px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .btn-modal-cancel:hover { color: #e5e7eb; }
+    .btn-modal-save {
+      background: #6366f1;
+      border: none;
+      border-radius: 8px;
+      color: #fff;
+      padding: 8px 18px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn-modal-save:hover { background: #4f46e5; }
   </style>
 </head>
 <body>
@@ -374,16 +514,6 @@
   </div>
 
   <div class="field">
-    <label>审批人</label>
-    <input id="reviewer" type="text" placeholder="shiyu" value="shiyu" />
-  </div>
-
-  <div class="field">
-    <label>调研报告路径</label>
-    <input id="reportPath" type="text" placeholder="/path/to/report.md" />
-  </div>
-
-  <div class="field">
     <label>选股数量</label>
     <select id="topN">
       <option value="1">1 支</option>
@@ -393,11 +523,6 @@
     </select>
   </div>
 
-  <div class="field">
-    <label>拉取历史行情（可选，空格分隔）</label>
-    <input id="symbols" type="text" placeholder="AAPL.US TSLA.US" />
-  </div>
-
   <hr />
 
   <div class="hint">
@@ -405,24 +530,57 @@
     选股后直接输入调整要求，Agent 将重新筛选<br />
     点击卡片选中，提交后由 Agent 自动下单
   </div>
+
+  <button class="btn-settings" onclick="openSettings()">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12 15.5A3.5 3.5 0 0 1 8.5 12 3.5 3.5 0 0 1 12 8.5a3.5 3.5 0 0 1 3.5 3.5 3.5 3.5 0 0 1-3.5 3.5m7.43-2.92c.04-.34.07-.68.07-1.08s-.03-.74-.07-1.08l2.32-1.82c.21-.16.27-.45.13-.69l-2.2-3.81c-.14-.24-.42-.32-.66-.24l-2.74 1.1c-.57-.44-1.18-.81-1.86-1.07l-.41-2.9C14.6 2.18 14.34 2 14.06 2H9.94C9.66 2 9.4 2.18 9.37 2.45l-.41 2.9c-.68.26-1.29.63-1.86 1.07L4.36 5.32c-.24-.08-.52 0-.66.24L1.5 9.37c-.14.24-.08.53.13.69l2.32 1.82c-.04.34-.07.68-.07 1.08s.03.74.07 1.08L1.63 15.87c-.21.16-.27.45-.13.69l2.2 3.81c.14.24.42.32.66.24l2.74-1.1c.57.44 1.18.81 1.86 1.07l.41 2.9C9.4 21.82 9.66 22 9.94 22h4.12c.28 0 .54-.18.57-.45l.41-2.9c.68-.26 1.29-.63 1.86-1.07l2.74 1.1c.24.08.52 0 .66-.24l2.2-3.81c.14-.24.08-.53-.13-.69l-2.32-1.82z"/>
+    </svg>
+    设置 Prompt
+  </button>
 </aside>
 
-<!-- 聊天区域 -->
+<!-- 设置弹窗 -->
+<div class="modal-overlay" id="settingsModal" onclick="closeSettingsOnBg(event)">
+  <div class="modal">
+    <h2>选股 Agent Prompt</h2>
+    <p class="modal-sub">编辑后点击保存，下次选股时生效。可使用 <code style="background:#353857;padding:1px 5px;border-radius:4px">{n}</code> 表示选股数量。</p>
+    <textarea id="promptTextarea" spellcheck="false"></textarea>
+    <div class="modal-actions">
+      <button class="btn-modal-cancel" onclick="closeSettings()">取消</button>
+      <button class="btn-modal-save" onclick="saveSettings()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 主区域 -->
 <div class="chat-wrapper">
-  <div class="chat-header">
-    <div class="dot"></div>
-    策略 Agent 在线
-  </div>
-
-  <div class="messages" id="messages">
-    <div class="bubble system">你好！请在左侧填写账户信息和报告路径，然后输入「选股」开始分析。</div>
-  </div>
-
-  <div class="input-area">
-    <textarea id="userInput" rows="1" placeholder="输入消息，按 Enter 发送…"></textarea>
-    <button class="btn-send" onclick="sendText()">
-      <svg width="18" height="18" viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+  <!-- Tab 栏 -->
+  <div class="tab-bar">
+    <button class="tab-btn active" id="tab-chat" onclick="switchTab('chat')">
+      <div class="dot"></div>
+      策略 Agent
     </button>
+    <button class="tab-btn" id="tab-report" onclick="switchTab('report')">
+      研报
+    </button>
+  </div>
+
+  <!-- 聊天视图 -->
+  <div class="view chat-view" id="view-chat" style="display:flex">
+    <div class="messages" id="messages">
+      <div class="bubble system">你好！请在左侧填写账户信息，然后输入「选股」开始分析。</div>
+    </div>
+    <div class="input-area">
+      <textarea id="userInput" rows="1" placeholder="输入消息，按 Enter 发送…"></textarea>
+      <button class="btn-send" onclick="sendText()">
+        <svg width="18" height="18" viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- 报告视图 -->
+  <div class="view report-view" id="view-report" style="display:none">
+    <div id="reportContent" class="report-loading">加载中…</div>
   </div>
 </div>
 

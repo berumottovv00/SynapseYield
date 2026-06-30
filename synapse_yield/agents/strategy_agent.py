@@ -44,13 +44,13 @@ class StrategyAgent:
         market_content: str,
         account_id: str,
         n: int = 2,
-        symbols: list[str] | None = None,
         instructions: str | None = None,
+        custom_prompt: str | None = None,
     ) -> StockSelectionResult:
         """分析调研报告，结合账户仓位挑选 n 支候选标的。
 
-        symbols: 若提供，拉取长桥历史行情附加到报告末尾供 LLM 参考。
-        instructions: 用户的调整指令（refine），累积追加，引导 LLM 重新筛选。
+        若 history_fetcher 可用，先做初步选股，再拉取所选标的的历史行情，
+        附加到报告后重新精选，让 LLM 参考真实价格走势做最终判断。
         """
         self._assert_enabled()
 
@@ -64,15 +64,29 @@ class StrategyAgent:
         if select_fn is None:
             raise RuntimeError("The configured provider does not support select_stocks()")
 
-        content = market_content
-        if self._history_fetcher is not None and symbols:
-            history_sections = [
-                self._history_fetcher.fetch_markdown(sym) for sym in symbols
-            ]
-            content = content + "\n\n---\n\n" + "\n\n".join(history_sections)
-
         account_context = self._load_account_context(account_id)
-        return select_fn(content, account_context, n, instructions)
+
+        if self._history_fetcher is None:
+            return select_fn(market_content, account_context, n, instructions, custom_prompt)
+
+        # 第一阶段：基于报告初步选股，获取候选标的代码
+        initial = select_fn(market_content, account_context, n, instructions, custom_prompt)
+        symbols = [p.symbol for p in initial.picks] if initial.picks else []
+        if not symbols:
+            return initial
+
+        # 第二阶段：拉取历史行情附加到报告，重新精选
+        history_sections = []
+        for sym in symbols:
+            try:
+                history_sections.append(self._history_fetcher.fetch_markdown(sym))
+            except Exception:
+                pass
+        if not history_sections:
+            return initial
+
+        enriched_content = market_content + "\n\n---\n\n" + "\n\n".join(history_sections)
+        return select_fn(enriched_content, account_context, n, instructions, custom_prompt)
 
     def chat(self, message: str) -> str:
         """用 LLM 直接回答用户问题，不校验 enable 开关。"""

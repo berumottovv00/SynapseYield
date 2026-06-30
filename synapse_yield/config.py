@@ -57,6 +57,8 @@ class Settings(BaseSettings):
     web_port: int = Field(default=7878, alias="WEB_PORT")
 
 
+# 只在第一次调用时真正执行，之后每次调用都直接返回缓存的同一个 Settings 实例。
+# Settings() 每次创建都会读取 .env 文件和环境变量，有 IO 开销。用 lru_cache 相当于把它变成全局单例，整个进程生命周期里只初始化一次。
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
