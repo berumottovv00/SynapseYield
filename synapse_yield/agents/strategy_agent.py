@@ -16,7 +16,6 @@ from sqlalchemy.orm import Session
 from synapse_yield.agents.llm_provider import OpenAITradeProposalProvider, TradeProposalProvider
 from synapse_yield.config import get_settings
 from synapse_yield.domain.schemas import StockSelectionResult
-from synapse_yield.market.history import HistoryFetcher
 from synapse_yield.storage.models import Account, Position
 from synapse_yield.storage.session import SessionLocal
 
@@ -29,12 +28,12 @@ class StrategyAgent:
         *,
         provider: TradeProposalProvider | None = None,
         session_factory: Callable[[], Session] = SessionLocal,
-        history_fetcher: HistoryFetcher | None = None,
+        tools: list | None = None,
         enabled: bool | None = None,
     ) -> None:
         self.provider = provider or OpenAITradeProposalProvider()
         self.session_factory = session_factory
-        self._history_fetcher = history_fetcher
+        self._tools = tools or []
         self.enabled = (
             get_settings().enable_llm_trading_agent if enabled is None else enabled
         )
@@ -49,15 +48,15 @@ class StrategyAgent:
     ) -> StockSelectionResult:
         """分析调研报告，结合账户仓位挑选 n 支候选标的。
 
-        若 history_fetcher 可用，先做初步选股，再拉取所选标的的历史行情，
-        附加到报告后重新精选，让 LLM 参考真实价格走势做最终判断。
+        若注入了 tools，LLM 会在 ReAct 循环中按需调用工具拉取行情，
+        由模型自主决定拉哪些标的、何时停止。
         """
         self._assert_enabled()
 
         if not market_content or not market_content.strip():
             return StockSelectionResult(
                 picks=[],
-                market_summary="报告内容为空，请先在左侧填写报告路径并加载文件。",
+                market_summary="报告内容为空，请先加载报告文件。",
             )
 
         select_fn = getattr(self.provider, "select_stocks", None)
@@ -65,28 +64,14 @@ class StrategyAgent:
             raise RuntimeError("The configured provider does not support select_stocks()")
 
         account_context = self._load_account_context(account_id)
-
-        if self._history_fetcher is None:
-            return select_fn(market_content, account_context, n, instructions, custom_prompt)
-
-        # 第一阶段：基于报告初步选股，获取候选标的代码
-        initial = select_fn(market_content, account_context, n, instructions, custom_prompt)
-        symbols = [p.symbol for p in initial.picks] if initial.picks else []
-        if not symbols:
-            return initial
-
-        # 第二阶段：拉取历史行情附加到报告，重新精选
-        history_sections = []
-        for sym in symbols:
-            try:
-                history_sections.append(self._history_fetcher.fetch_markdown(sym))
-            except Exception:
-                pass
-        if not history_sections:
-            return initial
-
-        enriched_content = market_content + "\n\n---\n\n" + "\n\n".join(history_sections)
-        return select_fn(enriched_content, account_context, n, instructions, custom_prompt)
+        return select_fn(
+            market_content,
+            account_context,
+            n,
+            instructions,
+            custom_prompt,
+            self._tools or None,
+        )
 
     def chat(self, message: str) -> str:
         """用 LLM 直接回答用户问题，不校验 enable 开关。"""

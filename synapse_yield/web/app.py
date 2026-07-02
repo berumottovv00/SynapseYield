@@ -39,14 +39,15 @@ def _build_shared_services():
     order_service = OrderService()
     broker = build_broker(order_service=order_service)
 
-    history_fetcher = None
+    tools = []
     try:
         from synapse_yield.market.history import LongbridgeHistoryFetcher
-        history_fetcher = LongbridgeHistoryFetcher()
+        from synapse_yield.tools.market import MarketHistoryTool
+        tools = [MarketHistoryTool(LongbridgeHistoryFetcher())]
     except Exception:
         pass
 
-    strategy = StrategyAgent(history_fetcher=history_fetcher)
+    strategy = StrategyAgent(tools=tools)
     executor = TradeExecutor(order_service=order_service, broker=broker, strategy_name="harness_agent")
     return strategy, executor
 

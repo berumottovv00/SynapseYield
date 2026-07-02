@@ -76,9 +76,13 @@ class OpenAITradeProposalProvider:
         n: int = 1,
         instructions: str | None = None,
         custom_prompt: str | None = None,
+        tools: list | None = None,
     ) -> StockSelectionResult:
-        """从调研报告中挑选最值得操作的 n 支股票，结合账户仓位给出下单数量建议。"""
+        """从调研报告中挑选最值得操作的 n 支股票，结合账户仓位给出下单数量建议。
 
+        若传入 tools，先跑 ReAct 循环让 LLM 按需拉取行情数据，
+        所有 tool call 执行完毕后再做一次结构化输出。
+        """
         if custom_prompt:
             system_prompt = custom_prompt.replace("{n}", str(n))
         else:
@@ -91,12 +95,45 @@ class OpenAITradeProposalProvider:
             f"Account & Positions:\n{json.dumps(account_context, ensure_ascii=False)}\n\n"
             f"Market Research Report:\n{market_content}"
         )
+        messages: list[dict] = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
+        ]
+
+        # ── ReAct 循环：LLM 可按需调用工具拉取行情 ──────────────────────────────
+        if tools:
+            tool_map = {t.name: t for t in tools}
+            tool_schemas = [t.schema for t in tools]
+
+            for _ in range(5):  # 最多 5 轮，防止死循环
+                resp = self.client.chat.completions.create(
+                    model=self.model_name,
+                    messages=messages,
+                    tools=tool_schemas,
+                    tool_choice="auto",
+                    max_tokens=2048,
+                )
+                msg = resp.choices[0].message
+                # 把 assistant 消息追加到历史（含 tool_calls 字段）
+                messages.append(msg.model_dump(exclude_unset=True))
+
+                if not msg.tool_calls:
+                    break  # LLM 不再调工具，退出循环
+
+                # 执行所有 tool call，把结果追加到 messages
+                for tc in msg.tool_calls:
+                    tool = tool_map.get(tc.function.name)
+                    result = tool.run_call(tc) if tool else f"Unknown tool: {tc.function.name}"
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": result,
+                    })
+
+        # ── 最终结构化输出 ────────────────────────────────────────────────────────
         response = self.client.beta.chat.completions.parse(
             model=self.model_name,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_content},
-            ],
+            messages=messages,
             response_format=StockSelectionResult,
             max_tokens=4096,
         )
