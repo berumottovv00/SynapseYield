@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 
 from synapse_yield.agents.harness_agent import HarnessAgentGraph
 from synapse_yield.agents.llm_provider import DEFAULT_SYSTEM_PROMPT
-from synapse_yield.agents.strategy_agent import StrategyAgent
+from synapse_yield.skills.select_stocks import SelectStocksSkill
 from synapse_yield.broker.factory import build_broker
 from synapse_yield.config import get_settings
 from synapse_yield.harness.order_service import OrderService
@@ -47,19 +47,20 @@ def _build_shared_services():
     except Exception:
         pass
 
-    strategy = StrategyAgent(tools=tools)
+    select_skill = SelectStocksSkill(tools=tools)
     executor = TradeExecutor(order_service=order_service, broker=broker, strategy_name="harness_agent")
-    return strategy, executor
+    return select_skill, executor, tools
 
 
-_shared_strategy: StrategyAgent | None = None
+_shared_select_skill: SelectStocksSkill | None = None
 _shared_executor = None
+_shared_tools: list = []
 
 
 @app.on_event("startup")
 async def _startup():
-    global _shared_strategy, _shared_executor
-    _shared_strategy, _shared_executor = _build_shared_services()
+    global _shared_select_skill, _shared_executor, _shared_tools
+    _shared_select_skill, _shared_executor, _shared_tools = _build_shared_services()
 
 
 # ── 会话状态 ──────────────────────────────────────────────────────────────────
@@ -122,8 +123,9 @@ def _build_harness_agent(
         asyncio.run_coroutine_threadsafe(_manager.push(session_id, kwargs), loop)
 
     return HarnessAgentGraph(
-        strategy_agent=_shared_strategy,
+        select_skill=_shared_select_skill,
         executor=_shared_executor,
+        tools=_shared_tools,
         push_fn=push_fn,
     )
 

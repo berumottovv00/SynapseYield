@@ -1,7 +1,7 @@
 """Harness Agent：顶层 LangGraph 图，协调策略选股 → 人工审批 → Broker 执行。
 
 职责划分：
-  - strategy_agent: select_stocks()（LLM 分析报告）；chat()（闲聊）；classify_intent()（意图分类）
+  - select_skill:   SelectStocksSkill.__call__()（LLM 分析报告，返回选股结果）
   - executor:       风控 + Broker 提交 + 止盈/止损子单（与 LLM 完全解耦）
   - HarnessAgent:   LangGraph 图，串联上述两者，interrupt() 是唯一的人机交互点
 
@@ -20,8 +20,8 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
 if TYPE_CHECKING:
-    from synapse_yield.agents.strategy_agent import StrategyAgent
     from synapse_yield.harness.trade_executor import TradeExecutor
+    from synapse_yield.skills.select_stocks import SelectStocksSkill
 
 # push_fn(**kwargs) — 由 app.py 注入，线程安全地推送消息到 WebSocket
 PushFn = Callable[..., None]
@@ -49,14 +49,18 @@ class HarnessAgentGraph:
     def __init__(
         self,
         *,
-        strategy_agent: StrategyAgent,
+        select_skill: SelectStocksSkill,
         executor: TradeExecutor,
         push_fn: PushFn,
+        tools: list | None = None,
         checkpointer=None,
     ) -> None:
-        self._strategy = strategy_agent
+        self._select_skill = select_skill
         self._executor = executor
         self._push = push_fn
+        self._tools: list = tools or []
+        self._client = getattr(select_skill.provider, "client", None)
+        self._model: str = getattr(select_skill.provider, "model_name", "gpt-4o")
         self._compiled_graph = self._build(checkpointer or MemorySaver())
 
     # ── 构建图 ────────────────────────────────────────────────────────────────
@@ -129,7 +133,7 @@ class HarnessAgentGraph:
             return {"intent": "select", "instructions": None}
 
         # 模糊情况：LLM 分类
-        intent = self._strategy.classify_intent(text)
+        intent = self._classify_intent(text)
 
         if intent == "order":
             pending = list(state.get("pending_picks") or [])
@@ -147,7 +151,7 @@ class HarnessAgentGraph:
     def _select(self, state: HarnessState) -> dict:
         self._push(type="thinking", text=f"正在分析报告，挑选 {state['n']} 支股票……")
 
-        result = self._strategy.select_stocks(
+        result = self._select_skill(
             state["report_content"],
             state["account_id"],
             n=state["n"],
@@ -233,6 +237,72 @@ class HarnessAgentGraph:
 
     def _chat(self, state: HarnessState) -> dict:
         text = state.get("user_text", "")
-        response = self._strategy.chat(text)
-        self._push(type="message", text=response)
+        self._push(type="message", text=self._llm_chat(text))
         return {}
+
+    # ── LLM 辅助方法 ─────────────────────────────────────────────────────────────
+
+    def _llm_chat(self, message: str) -> str:
+        """带工具的闲聊回复，LLM 可按需调用行情工具。"""
+        if self._client is None:
+            return "抱歉，当前 LLM 服务不可用。"
+
+        messages: list[dict] = [
+            {
+                "role": "system",
+                "content": (
+                    "你是一个专业的量化交易助手，熟悉股票市场、投资策略和风险管理。"
+                    "若需要查询某只股票的历史行情，可调用工具获取数据后再回答。"
+                    "请简洁、准确地回答用户问题。"
+                ),
+            },
+            {"role": "user", "content": message},
+        ]
+
+        if self._tools:
+            tool_map = {t.name: t for t in self._tools}
+            tool_schemas = [t.schema for t in self._tools]
+            for _ in range(5):
+                resp = self._client.chat.completions.create(
+                    model=self._model,
+                    messages=messages,
+                    tools=tool_schemas,
+                    tool_choice="auto",
+                )
+                msg = resp.choices[0].message
+                messages.append(msg.model_dump(exclude_unset=True))
+                if not msg.tool_calls:
+                    return msg.content or ""
+                for tc in msg.tool_calls:
+                    tool = tool_map.get(tc.function.name)
+                    result = tool.run_call(tc) if tool else f"Unknown tool: {tc.function.name}"
+                    messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
+            return ""
+
+        resp = self._client.chat.completions.create(model=self._model, messages=messages)
+        return resp.choices[0].message.content or ""
+
+    def _classify_intent(self, text: str) -> str:
+        """调用 LLM 将用户输入分类为 'select' / 'order' / 'chat'。"""
+        if self._client is None:
+            return "chat"
+        response = self._client.chat.completions.create(
+            model=self._model,
+            max_tokens=5,
+            temperature=0,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "你是交易系统的意图分类器。根据用户输入，只返回以下标签之一：\n"
+                        "- select：用户想要选股、分析报告、或调整选股条件\n"
+                        "- order：用户想要下单、买入或卖出股票\n"
+                        "- chat：用户在闲聊或询问通用知识，不涉及具体操作\n"
+                        "只返回标签本身，不要有其他文字。"
+                    ),
+                },
+                {"role": "user", "content": text},
+            ],
+        )
+        label = (response.choices[0].message.content or "").strip().lower()
+        return label if label in ("select", "order", "chat") else "chat"
