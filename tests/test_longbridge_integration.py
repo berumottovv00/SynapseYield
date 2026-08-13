@@ -1,17 +1,8 @@
-from decimal import Decimal
-
 import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session, sessionmaker
 
 from synapse_yield.broker.factory import build_broker
 from synapse_yield.broker.longbridge.adapter import LongbridgeBroker
 from synapse_yield.config import get_settings
-from synapse_yield.domain.enums import OrderSide, OrderStatus, OrderType
-from synapse_yield.domain.schemas import StrategyOutput
-from synapse_yield.storage.base import Base
-from synapse_yield.storage.models import Account, Order
-from synapse_yield.strategy.adapters import CallableStrategyAdapter
 
 
 def _integration_broker() -> LongbridgeBroker:
@@ -22,14 +13,6 @@ def _integration_broker() -> LongbridgeBroker:
     if not isinstance(broker, LongbridgeBroker):
         pytest.fail("Set BROKER_TYPE=longbridge before running Longbridge integration tests")
     return broker
-
-
-def _session() -> Session:
-    """联调订单使用独立内存库，不污染项目 MySQL 数据。"""
-
-    engine = create_engine("sqlite:///:memory:", future=True)
-    Base.metadata.create_all(engine)
-    return sessionmaker(bind=engine, future=True, expire_on_commit=False)()
 
 
 @pytest.mark.longbridge_integration
@@ -56,5 +39,3 @@ def test_longbridge_read_only_connection() -> None:
     print("positions:", positions)
     print("orders:", orders)
     print("quote:", quote)
-
-

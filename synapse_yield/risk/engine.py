@@ -142,6 +142,30 @@ class RiskEngine:
             )
 
         # 仓位比例只限制新增买入；卖出会降低风险敞口，无需执行这两项拦截。
+        if (
+            intent.side == OrderSide.BUY
+            and self.config.max_position_ratio_per_symbol is not None
+            and account.equity > 0
+        ):
+            checked_rules.append("max_position_ratio_per_symbol")
+            existing_position = session.scalar(
+                select(Position).where(
+                    Position.account_id == intent.account_id,
+                    Position.symbol == intent.symbol,
+                )
+            )
+            existing_market_value = existing_position.market_value if existing_position else Decimal("0")
+            projected_value = existing_market_value + estimated_value
+            projected_ratio = projected_value / account.equity
+            input_snapshot["projected_symbol_position_ratio"] = str(projected_ratio)
+            if projected_ratio > self.config.max_position_ratio_per_symbol:
+                return self._rejected(
+                    "MAX_POSITION_RATIO_EXCEEDED",
+                    "Projected position value for this symbol exceeds the configured ratio of account equity",
+                    checked_rules,
+                    input_snapshot,
+                )
+
         # 有行情时限制限价偏离，拦截价格单位错误或明显异常的委托。
         if intent.limit_price is not None and quote is not None:
             checked_rules.append("limit_price_deviation")

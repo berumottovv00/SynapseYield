@@ -62,6 +62,7 @@ class RiskConfig(BaseModel):
     duplicate_order_cooldown_seconds: int = 60  # 重复订单冷却时间，降低误触发风险
     max_limit_price_deviation_ratio: Decimal = Decimal("0.03")  # 限价相对最新价最大偏离比例
     require_market_session: bool = True  # 是否要求只在交易时段内下单
+    max_position_ratio_per_symbol: Decimal | None = None  # 单标的持仓市值占账户权益上限，None 表示不限制
 
 
 class LocalSimConfig(BaseModel):
