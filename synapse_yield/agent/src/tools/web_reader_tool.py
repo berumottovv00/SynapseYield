@@ -20,6 +20,13 @@ _TIMEOUT = 30
 _MAX_LENGTH = 8000
 _CACHED_MARKER = "Warning: This is a cached snapshot"
 
+# Per-process cache of URLs that already failed in this run. The model has no
+# built-in notion of "I already tried this and it didn't work" — without this,
+# a blocked/erroring URL (e.g. an anti-abuse 403) gets re-requested verbatim
+# on every subsequent iteration, burning iterations/wall-clock for a result
+# that cannot change. Scoped to the process (fresh per swarm worker run).
+_FAILED_URLS: dict[str, str] = {}
+
 
 def _url_allowed(url: str) -> tuple[bool, str]:
     """Return whether a URL is safe to forward to the remote reader service."""
@@ -78,6 +85,17 @@ def read_url(url: str, no_cache: bool = False) -> str:
     if not allowed:
         return json.dumps({"status": "error", "error": error}, ensure_ascii=False)
 
+    cached_failure = _FAILED_URLS.get(target_url)
+    if cached_failure is not None:
+        return json.dumps({
+            "status": "error",
+            "error": (
+                f"Skipped (not re-fetched): this exact URL already failed earlier "
+                f"in this run — {cached_failure}. Retrying it will not change the "
+                f"result; read a different source instead."
+            ),
+        }, ensure_ascii=False)
+
     try:
         headers = {"Accept": "text/markdown"}
         if no_cache:
@@ -94,10 +112,9 @@ def read_url(url: str, no_cache: bool = False) -> str:
         emit_progress("parsing", message="extracting markdown")
         if resp.status_code != 200:
             logger.warning("read_url upstream HTTP %s: %s", resp.status_code, resp.text[:500])
-            return json.dumps({
-                "status": "error",
-                "error": f"remote reader returned HTTP {resp.status_code}: {resp.text[:500]}",
-            }, ensure_ascii=False)
+            error_msg = f"remote reader returned HTTP {resp.status_code}: {resp.text[:500]}"
+            _FAILED_URLS[target_url] = error_msg
+            return json.dumps({"status": "error", "error": error_msg}, ensure_ascii=False)
 
         text = resp.text
         title = ""
@@ -122,13 +139,14 @@ def read_url(url: str, no_cache: bool = False) -> str:
         return json.dumps(result, ensure_ascii=False)
 
     except requests.Timeout:
-        return json.dumps({"status": "error", "error": f"Request timed out ({_TIMEOUT}s)"}, ensure_ascii=False)
+        error_msg = f"Request timed out ({_TIMEOUT}s)"
+        _FAILED_URLS[target_url] = error_msg
+        return json.dumps({"status": "error", "error": error_msg}, ensure_ascii=False)
     except Exception as exc:
         logger.warning("read_url request failed: %s", exc)
-        return json.dumps(
-            {"status": "error", "error": f"remote reader request failed: {exc}"},
-            ensure_ascii=False,
-        )
+        error_msg = f"remote reader request failed: {exc}"
+        _FAILED_URLS[target_url] = error_msg
+        return json.dumps({"status": "error", "error": error_msg}, ensure_ascii=False)
 
 
 class WebReaderTool(BaseTool):

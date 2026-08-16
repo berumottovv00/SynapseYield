@@ -65,12 +65,13 @@ def _heartbeat_interval_s() -> float:
 
 
 def _stream_retry_delay_s() -> float:
-    """Resolve the delay before the single stream retry, robust to garbage.
+    """Resolve the base delay before the first stream retry, robust to garbage.
 
     Returns:
-        Seconds to sleep between a failed ``stream_chat`` attempt and its one
-        retry. Configurable via ``SWARM_STREAM_RETRY_DELAY_S``; a bad value
-        falls back to 1.0s instead of crashing import.
+        Seconds to sleep before the first retry (doubles each subsequent
+        retry, see ``_STREAM_RETRY_MAX_DELAY_S``). Configurable via
+        ``SWARM_STREAM_RETRY_DELAY_S``; a bad value falls back to 1.0s
+        instead of crashing import.
     """
     try:
         return float(os.getenv("SWARM_STREAM_RETRY_DELAY_S", "1.0"))
@@ -78,8 +79,29 @@ def _stream_retry_delay_s() -> float:
         return 1.0
 
 
+def _stream_max_retries() -> int:
+    """Resolve how many retries follow a failed stream attempt, robust to garbage.
+
+    A single 1s retry doesn't give a real network blip (as opposed to an
+    instant deterministic error) enough time to clear, so failed runs used to
+    give up on transient hiccups that a couple more attempts would have
+    absorbed.
+
+    Returns:
+        Retry count (attempts after the first), configurable via
+        ``SWARM_STREAM_MAX_RETRIES``; a bad value falls back to 2 instead of
+        crashing import.
+    """
+    try:
+        return max(0, int(os.getenv("SWARM_STREAM_MAX_RETRIES", "2")))
+    except ValueError:
+        return 2
+
+
 _HEARTBEAT_INTERVAL_S = _heartbeat_interval_s()
 _STREAM_RETRY_DELAY_S = _stream_retry_delay_s()
+_STREAM_MAX_RETRIES = _stream_max_retries()
+_STREAM_RETRY_MAX_DELAY_S = 10.0
 _MAX_TOKEN_ESTIMATE = 60_000
 
 
@@ -527,26 +549,40 @@ def run_worker(
 
             # A transient mid-stream hiccup (connection reset) used to be
             # absorbed by ChatLLM's silent non-streaming fallback; it now
-            # surfaces as ProviderStreamError, so retry the stream exactly
-            # once before taking the existing failure path. Deterministic
-            # 4xx errors skip the retry and fail immediately.
+            # surfaces as ProviderStreamError, so retry the stream with
+            # exponential backoff before taking the existing failure path.
+            # Deterministic 4xx errors skip the retry and fail immediately.
             try:
                 response = _stream_once()
             except ProviderStreamError as stream_exc:
-                if not stream_exc.retryable:
+                if not stream_exc.retryable or _STREAM_MAX_RETRIES == 0:
                     raise
-                logger.warning(
-                    "Provider stream failed for agent=%s task=%s iteration=%d "
-                    "(provider=%s model=%s); retrying once: %s",
-                    agent_id,
-                    task_id,
-                    iteration,
-                    stream_exc.provider,
-                    stream_exc.model,
-                    stream_exc,
-                )
-                time.sleep(_STREAM_RETRY_DELAY_S)
-                response = _stream_once()
+                for attempt in range(_STREAM_MAX_RETRIES):
+                    delay = min(
+                        _STREAM_RETRY_DELAY_S * (2 ** attempt),
+                        _STREAM_RETRY_MAX_DELAY_S,
+                    )
+                    logger.warning(
+                        "Provider stream failed for agent=%s task=%s iteration=%d "
+                        "(provider=%s model=%s); retry %d/%d in %.1fs: %s",
+                        agent_id,
+                        task_id,
+                        iteration,
+                        stream_exc.provider,
+                        stream_exc.model,
+                        attempt + 1,
+                        _STREAM_MAX_RETRIES,
+                        delay,
+                        stream_exc,
+                    )
+                    time.sleep(delay)
+                    try:
+                        response = _stream_once()
+                        break
+                    except ProviderStreamError as retry_exc:
+                        if not retry_exc.retryable or attempt == _STREAM_MAX_RETRIES - 1:
+                            raise
+                        stream_exc = retry_exc
         except Exception as exc:
             error_msg = f"LLM call failed at iteration {iteration}: {exc}"
             logger.warning(error_msg)
