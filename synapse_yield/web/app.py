@@ -13,8 +13,8 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from synapse_yield.agents.harness_agent import HarnessAgentGraph
-from synapse_yield.agents.llm_provider import DEFAULT_SYSTEM_PROMPT
+from synapse_yield.orchestrator.harness_agent import HarnessAgentGraph
+from synapse_yield.orchestrator.llm_provider import DEFAULT_SYSTEM_PROMPT
 from synapse_yield.skills.select_stocks import SelectStocksSkill
 from synapse_yield.broker.factory import build_broker
 from synapse_yield.config import get_settings

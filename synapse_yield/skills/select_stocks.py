@@ -13,7 +13,7 @@ from collections.abc import Callable
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from synapse_yield.agents.llm_provider import OpenAITradeProposalProvider, TradeProposalProvider
+from synapse_yield.orchestrator.llm_provider import OpenAITradeProposalProvider, TradeProposalProvider
 from synapse_yield.config import get_settings
 from synapse_yield.domain.schemas import StockSelectionResult
 from synapse_yield.storage.models import Account, Position

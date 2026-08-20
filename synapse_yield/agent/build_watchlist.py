@@ -9,6 +9,11 @@ news_analyst / technical_screener 的 ReAct 迭代里挪出来，交给确定性
 akshare 没有官方限速保证，个别接口偶尔会被源站限流/断连——每个数据源都单独
 try/except，某一路失败只是少一路候选，不会导致整个脚本失败。
 
+输出格式是「代码(中文名)」逗号分隔（例如 300017(网宿科技)），带上名称是为了让
+下游 LLM 不用再自己猜/查股票名，避免翻译错或编造。仅靠「个股资金流向」这一路
+命中、没有出现在涨停/龙虎榜里的股票，接口本身不返回名称，会退化成「代码(代码)」
+占位，不影响使用。
+
 用法：
     python synapse_yield/agent/build_watchlist.py
     python synapse_yield/agent/build_watchlist.py --date 20260810 --limit 20 --verbose
@@ -153,7 +158,10 @@ def main() -> None:
         for code, name, why in picks:
             print(f"  {code} {name}  <- {', '.join(why)}", file=sys.stderr)
 
-    print(",".join(code for code, _, _ in picks))
+    # 带上中文名称（"代码(名称)"），这样 LLM 不用再自己猜/查股票名，
+    # 也不会把名字翻译错或编造——watchlist 只是拼进 prompt 的自由文本，
+    # 不会被下游当成严格的纯代码列表解析。
+    print(",".join(f"{code}({name})" for code, name, _ in picks))
 
 
 if __name__ == "__main__":

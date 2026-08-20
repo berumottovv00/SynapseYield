@@ -98,11 +98,26 @@ def _stream_max_retries() -> int:
         return 2
 
 
+def _max_token_estimate() -> int:
+    """Resolve the per-task context budget before a worker aborts with token_limit.
+
+    A task whose running message history estimate (``chars // 4``, not an exact
+    tokenizer count) exceeds this aborts rather than continuing — this is what
+    hit a watchlist-heavy technical_screener run at only 7 iterations under the
+    original 60k default. Configurable via ``SWARM_MAX_TOKEN_ESTIMATE``; a bad
+    value falls back to 120_000 instead of crashing import.
+    """
+    try:
+        return max(1_000, int(os.getenv("SWARM_MAX_TOKEN_ESTIMATE", "120000")))
+    except ValueError:
+        return 120_000
+
+
 _HEARTBEAT_INTERVAL_S = _heartbeat_interval_s()
 _STREAM_RETRY_DELAY_S = _stream_retry_delay_s()
 _STREAM_MAX_RETRIES = _stream_max_retries()
 _STREAM_RETRY_MAX_DELAY_S = 10.0
-_MAX_TOKEN_ESTIMATE = 60_000
+_MAX_TOKEN_ESTIMATE = _max_token_estimate()
 
 
 def _emit(

@@ -19,7 +19,7 @@ synapse_yield/
 ├── market/       # 行情拉取（长桥历史 K 线 → LLM 可读 markdown）
 ├── tools/        # 供闲聊节点调用的 LLM 工具（MarketHistoryTool 等）
 ├── skills/       # SelectStocksSkill：调用 LLM Provider 做选股
-├── agents/       # LangGraph 编排层：HarnessAgentGraph + LLM Provider
+├── orchestrator/ # LangGraph 编排层：HarnessAgentGraph + LLM Provider
 ├── web/          # FastAPI + WebSocket 聊天服务，静态前端
 ├── config.py     # pydantic-settings，读取 .env
 └── agent/        # 独立子系统，见下文，与以上包无任何 import 关系
@@ -34,7 +34,7 @@ tests/            # pytest 测试
 浏览器 (web/static) ──WebSocket──▶ web/app.py
                                      │
                                      ▼
-                          agents/harness_agent.py (LangGraph)
+                          orchestrator/harness_agent.py (LangGraph)
                           interpret → select / order / chat
                               │              │
                     skills/select_stocks.py  │
@@ -57,7 +57,7 @@ tests/            # pytest 测试
 - **`domain/state_machine.py`**：集中定义订单状态迁移合法性（`CREATED → RISK_APPROVED/RISK_REJECTED → SUBMITTING → SUBMITTED → FILLED/CANCELLED/...`），业务代码统一调用 `assert_order_transition` 校验，禁止绕过。
 - **`risk/engine.py`**：下单前同步规则校验（账户存在性、行情匹配、资金/仓位等），返回 `APPROVED / REJECTED / REQUIRES_MANUAL_REVIEW`。
 - **`broker/factory.py`**：按 `.env` 的 `BROKER_TYPE` 选择 Broker 实现——`local_sim`（不连外部服务，用于开发测试）或 `longbridge`（真实/模拟账户，三道开关默认关闭：`ENABLE_EXTERNAL_ORDER_SUBMISSION` / `ENABLE_LIVE_TRADING` / `LONGBRIDGE_MODE`）。
-- **`agents/harness_agent.py`**：唯一的人机交互点是 LangGraph 的 `interrupt()`——选股结果必须经用户审批（WebSocket `approve` 消息）才会进入 `TradeExecutor` 下单，LLM 只能建议、不能直接下单。
+- **`orchestrator/harness_agent.py`**：唯一的人机交互点是 LangGraph 的 `interrupt()`——选股结果必须经用户审批（WebSocket `approve` 消息）才会进入 `TradeExecutor` 下单，LLM 只能建议、不能直接下单。
 - **`storage/models.py`**：账户、持仓、订单、成交、风控决策、审计日志、Outbox 事件、对账任务、行情快照等 12 张表，通过 Alembic 管理迁移（`migrations/versions/`）。
 
 ## 运行
