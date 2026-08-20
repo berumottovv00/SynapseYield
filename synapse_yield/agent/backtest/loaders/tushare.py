@@ -16,6 +16,14 @@ from backtest.loaders.registry import register
 
 TUSHARE_TOKEN_PLACEHOLDERS = {"", "your-tushare-token"}
 
+# Codes that already failed once in this process (e.g. a zero-quota/no-permission
+# token) — skip re-attempting them. A permission error won't resolve itself
+# mid-run, and re-fetching the same code burns an API round trip for the exact
+# same result every time; without this, one bad token turns every watchlist-sized
+# run into dozens of repeat failures for the same handful of codes. Mirrors the
+# equivalent failure cache in src/tools/web_reader_tool.py.
+_FAILED_CODES: dict[str, str] = {}
+
 
 def _is_index(code: str) -> bool:
     """Detect A-share index symbols (000xxx.SH, 000300.SH, 399xxx.SZ)."""
@@ -98,6 +106,11 @@ class DataLoader:
         # passthrough when the cache is disabled. Fundamentals are merged inside
         # the cached unit so a cached entry already carries its extra columns.
         for code in codes:
+            cached_failure = _FAILED_CODES.get(code)
+            if cached_failure is not None:
+                print(f"[WARN] skipping {code}: already failed earlier in this run ({cached_failure})")
+                continue
+
             def _fetch_one(code: str = code) -> Optional[pd.DataFrame]:
                 try:
                     df = self._fetch_daily_frame(code, sd, ed)
@@ -109,6 +122,7 @@ class DataLoader:
                     return merged.get(code)
                 except Exception as exc:
                     print(f"[WARN] failed to fetch {code}: {exc}")
+                    _FAILED_CODES[code] = str(exc)
                     return None
 
             df = cached_loader_fetch(

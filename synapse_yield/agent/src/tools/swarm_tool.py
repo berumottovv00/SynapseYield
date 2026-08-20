@@ -112,15 +112,41 @@ def _extract_market(prompt: str) -> str:
     return "A-shares"
 
 
+def _extract_watchlist(prompt: str) -> str:
+    """从自由文本 prompt 里把调用方显式嵌入的 watchlist 抠出来。
+
+    run_daily_pick.py（以及理论上任何调用方）会在 prompt 末尾拼接一句
+    "Focus on watchlist: <逗号分隔的代码列表>." 这样的子句。这个函数就是把
+    那句话里的内容原样抠出来还给 {watchlist} 模板变量——在这个函数存在之前，
+    这句话只是被拼进了自由文本 prompt 里，但从来没有被解析出来过，
+    _build_variables 里 watchlist 一直是写死的空字符串，等于 --watchlist
+    参数实际上从没真正传到过任何 Agent 手里（Agent 看到的模板变量永远是
+    空的，也就永远在按"未提供 watchlist"的广泛扫描模式工作）。
+
+    如果 prompt 里没有这句话，返回空字符串——按设计这就是"未提供 watchlist，
+    走广泛扫描"的信号，跟原来的默认行为一致。
+
+    Args:
+        prompt: User's natural language prompt.
+
+    Returns:
+        提取出的 watchlist 原始文本（可能是"代码"或"代码(名称)"的逗号分隔列表），
+        没有则返回空字符串。
+    """
+    match = re.search(r"Focus on watchlist:\s*(.+?)\.\s*$", prompt.strip(), re.DOTALL)
+    return match.group(1).strip() if match else ""
+
+
 def _build_variables(preset_name: str, prompt: str) -> dict[str, str]:
     """从自由文本 prompt 构造出某个 preset 的 YAML prompt 模板需要的模板变量。
 
     agent/src/swarm/presets/ 下每个 preset YAML 都声明了一个 `variables`
     区块（market、timeframe、watchlist、num_picks……），这些值会被代入每个
     Agent/任务的 prompt 模板里。这个函数就是具体去算出某次运行该用什么值的
-    地方——目前只是识别出的市场（靠 _extract_market）加上一些固定默认值，
-    因为目前唯一捆绑的这个 preset 不需要更复杂的东西。以后要把别的 preset
-    加回来，就在下面的 `builders` 字典里给它加一条对应的记录。
+    地方——识别出的市场（靠 _extract_market）、抠出来的 watchlist（靠
+    _extract_watchlist）加上一些固定默认值，因为目前唯一捆绑的这个 preset
+    不需要更复杂的东西。以后要把别的 preset 加回来，就在下面的 `builders`
+    字典里给它加一条对应的记录。
 
     Args:
         preset_name: Matched presets name.
@@ -130,13 +156,16 @@ def _build_variables(preset_name: str, prompt: str) -> dict[str, str]:
         Dict of template variables required by the YAML presets.
     """
     market = _extract_market(prompt)
+    watchlist = _extract_watchlist(prompt)
 
     # Preset-specific variable sets (see agent/src/swarm/presets/*.yaml).
     builders: dict[str, dict[str, str]] = {
-        "news_technical_stock_picker": {"market": market, "timeframe": "daily", "watchlist": "", "num_picks": "5"},
+        "news_technical_stock_picker": {"market": market, "timeframe": "daily", "watchlist": watchlist, "num_picks": "5"},
     }
 
-    return builders.get(preset_name, {"market": market, "timeframe": "daily", "watchlist": "", "num_picks": "5"})
+    return builders.get(
+        preset_name, {"market": market, "timeframe": "daily", "watchlist": watchlist, "num_picks": "5"}
+    )
 
 
 # 由 _PRESET_KEYWORDS 派生出的「所有已捆绑 preset 名字」集合，用来校验调用方

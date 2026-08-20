@@ -15,6 +15,8 @@ agents:
 
       **Watchlist constraint (read carefully):** if {watchlist} is non-empty, it is a HARD constraint, not a preference — every ticker in your final output MUST be one literally listed in {watchlist}. Do not add, substitute, or introduce any ticker outside {watchlist}, even if you encounter a more compelling headline for a well-known name elsewhere — that is out of scope for this run. It is fine to report fewer candidates than usual, or to say a given watchlist name has no fresh catalyst today, rather than padding the list with names outside {watchlist}. Only when {watchlist} is empty should you scan broadly across {market} with no ticker restriction.
 
+      **How to actually find watchlist-specific news:** a generic market news feed will mostly surface large well-known names, not the smaller/speculative names typical of a watchlist — do not rely on one general feed and pick whatever it happens to contain. Instead, run a targeted web_search for each watchlist ticker individually (ticker + company name + "news"/"公告"/"新闻催化剂"), then read_url the most relevant hit(s). A name with a genuinely empty search result has no catalyst today — report that plainly rather than reaching for an unrelated headline to fill the row.
+
       Catalyst-Screening Framework:
       1. **Policy & regulatory catalysts** — sector-specific policy support/crackdown, subsidy changes, standard-setting; identify direct beneficiaries/losers by name
       2. **Corporate events** — earnings beats/misses and guidance changes, M&A/restructuring, buybacks, major contract wins, executive/insider buying-selling
@@ -34,8 +36,10 @@ agents:
 
       Explicitly flag: (a) any candidate where the news looks already fully priced in by a large recent move, (b) any "smart money ahead of news" volume anomaly with no confirmed catalyst yet — mark it speculative.
 
-      Use load_skill("web-reader") and read_url for primary sources, load_skill("sentiment-analysis") for tone scoring, load_skill("social-media-intelligence") for discussion-heat context, and get_market_data / load_skill("tushare") for dragon-tiger, block-trade, and Northbound flow data.
-    tools: [bash, read_file, write_file, load_skill, read_url, get_market_data]
+      Use web_search to find per-ticker news, load_skill("web-reader") and read_url to read the primary sources it turns up, load_skill("sentiment-analysis") for tone scoring, load_skill("social-media-intelligence") for discussion-heat context, and get_market_data / load_skill("tushare") for dragon-tiger, block-trade, and Northbound flow data.
+
+      **When calling get_market_data, never pass an explicit `source` parameter (especially not `"tushare"`) — leave it unset so it defaults to `"auto"`.** Auto already routes {market} to a free data provider with no account needed; explicitly forcing `source="tushare"` has repeatedly hit "no API quota" errors in this environment and just wastes iterations retrying a data source that cannot succeed. This restriction is specifically about the `source` argument to get_market_data — if load_skill("tushare") calls also start failing with the same quota error, stop using that skill for the rest of the run rather than retrying it.
+    tools: [bash, read_file, write_file, load_skill, web_search, read_url, get_market_data]
     skills: [web-reader, sentiment-analysis, social-media-intelligence, tushare]
     max_iterations: 50
     timeout_seconds: 1800
@@ -71,6 +75,8 @@ agents:
       6. **Chase risk** — flag if the setup is already extended (e.g., >2 standard deviations from the moving average) and better suited to a pullback entry than an immediate chase
 
       Use load_skill("technical-basic") for the core indicator toolkit, load_skill("candlestick") for pattern confirmation, and get_market_data for OHLCV history.
+
+      **When calling get_market_data, never pass an explicit `source` parameter (especially not `"tushare"`) — leave it unset so it defaults to `"auto"`.** Auto already routes {market} to a free data provider with no account needed; explicitly forcing `source="tushare"` has repeatedly hit "no API quota" errors in this environment and just wastes iterations retrying a data source that cannot succeed.
     tools: [bash, read_file, write_file, load_skill, get_market_data]
     skills: [technical-basic, candlestick, multi-factor]
     max_iterations: 50
@@ -110,6 +116,8 @@ agents:
       5. Optionally use the backtest tool to sanity-check how similar historical news+technical confirmation setups have performed; never fabricate results if data is unavailable.
 
       Use load_skill("strategy-generate") for the write-up standard and load_skill("risk-analysis") for position-sizing and stop-loss conventions.
+
+      **If you call get_market_data, never pass an explicit `source` parameter (especially not `"tushare"`) — leave it unset so it defaults to `"auto"`,** which already routes to a free data provider with no account needed. Explicitly forcing `source="tushare"` has repeatedly hit "no API quota" errors in this environment.
     tools: [bash, read_file, write_file, load_skill, get_market_data, backtest]
     skills: [strategy-generate, risk-analysis, multi-factor]
     max_iterations: 50

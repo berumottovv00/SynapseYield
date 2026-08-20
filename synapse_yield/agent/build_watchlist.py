@@ -64,6 +64,28 @@ def _warn(source: str, exc: Exception) -> None:
     print(f"[build_watchlist] {source} 拉取失败，跳过（{exc!r}）", file=sys.stderr)
 
 
+def _exchange_suffix(code: str) -> str:
+    """按标准 A 股代码前缀规则判断交易所后缀（SH/SZ/BJ）。
+
+    akshare 接口返回的都是不带后缀的纯数字代码，但下游 get_market_data 的
+    自动选源逻辑靠正则 ``^\\d{6}\\.(SZ|SH|BJ)$`` 识别 A 股代码——不带后缀会
+    匹配不上任何规则，兜底落到 tushare（这个账号权限有问题）或者直接解析
+    失败，导致 Agent 拿到没用的结果后陷入无意义的重试循环。这里带上后缀，
+    从源头避免这个问题。
+    """
+    if code.startswith(("60", "68", "90")):  # 沪市主板/科创板/B股
+        return "SH"
+    if code.startswith("11"):  # 沪市可转债（110/111/113/118）
+        return "SH"
+    if code.startswith(("00", "30", "20")):  # 深市主板/中小板/创业板/B股
+        return "SZ"
+    if code.startswith("12"):  # 深市可转债（123/127/128/129）
+        return "SZ"
+    if code.startswith(("4", "8", "92")):  # 北交所
+        return "BJ"
+    return "SZ"  # 兜底：深市最常见
+
+
 def _limit_up_candidates(trade_date: str) -> list[tuple[str, str, str]]:
     """今日涨停股：按封板资金（资金抢筹力度）排序。"""
     try:
@@ -156,12 +178,13 @@ def main() -> None:
     if args.verbose:
         print(f"[build_watchlist] 交易日 {trade_date}，共 {len(picks)} 只：", file=sys.stderr)
         for code, name, why in picks:
-            print(f"  {code} {name}  <- {', '.join(why)}", file=sys.stderr)
+            print(f"  {code}.{_exchange_suffix(code)} {name}  <- {', '.join(why)}", file=sys.stderr)
 
     # 带上中文名称（"代码(名称)"），这样 LLM 不用再自己猜/查股票名，
     # 也不会把名字翻译错或编造——watchlist 只是拼进 prompt 的自由文本，
-    # 不会被下游当成严格的纯代码列表解析。
-    print(",".join(f"{code}({name})" for code, name, _ in picks))
+    # 不会被下游当成严格的纯代码列表解析。代码带交易所后缀（.SH/.SZ/.BJ），
+    # 否则 get_market_data 的自动选源识别不出来，见 _exchange_suffix。
+    print(",".join(f"{code}.{_exchange_suffix(code)}({name})" for code, name, _ in picks))
 
 
 if __name__ == "__main__":
